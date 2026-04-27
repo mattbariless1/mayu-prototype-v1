@@ -1,6 +1,6 @@
 // 1. Configuration
 const SUPABASE_URL = 'https://lnxgiuebbdoaqlmeyujj.supabase.co';
-const SUPABASE_KEY = 'YOUR_PUBLISHABLE_KEY_HERE'; // Replace with your actual key
+const SUPABASE_KEY = 'sb_publishable_SNWgZmd5pTlRQJ601FGG7A_5t3vEXea'; // Replace with your actual key
 
 // Initialize the client with a unique name 'mayuDb'
 const mayuDb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -52,16 +52,20 @@ recordBtn.onclick = async () => {
 // 3. Backend Logic (Upload & Log)
 async function uploadToSupabase(blob) {
     const fileName = `voice_${Date.now()}.wav`;
-    
-    // Use 'mayuDb' instead of 'supabase'
+    status.innerText = "Uploading...";
+
+    console.log("Attempting upload to bucket: mayu-recordings");
+
     const { data, error } = await mayuDb.storage
         .from('mayu-recordings')
         .upload(fileName, blob);
 
     if (error) {
-        console.error("Storage Error:", error);
-        return status.innerText = "Upload failed.";
+        console.error("Upload failed details:", error);
+        return status.innerText = `Upload Error: ${error.message}`;
     }
+
+    console.log("Upload successful, logging to database...");
 
     const { data: { publicUrl } } = mayuDb.storage
         .from('mayu-recordings')
@@ -72,7 +76,10 @@ async function uploadToSupabase(blob) {
         file_url: publicUrl 
     }]);
 
-    if (dbError) console.error("Database Error:", dbError);
+    if (dbError) {
+        console.error("Database Log Error:", dbError);
+        return status.innerText = "File uploaded, but listing failed.";
+    }
 
     status.innerText = "Saved.";
     fetchRecordings();
