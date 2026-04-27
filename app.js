@@ -96,11 +96,15 @@ async function fetchRecordings() {
 
     const list = document.getElementById('recordingsList');
     list.innerHTML = data.map(rec => `
-        <div class="recording-item">
-            <input type="checkbox" name="rec-select" value="${rec.file_url}" onchange="handleSelect(this)">
-            <span>${rec.label}</span>
+    <div class="recording-item" id="rec-${rec.id}">
+        <input type="checkbox" name="rec-select" value="${rec.file_url}" onchange="handleSelect(this)">
+        <span class="rec-label">${rec.label}</span>
+        <div class="item-actions">
+            <button onclick="renameRecording('${rec.id}', '${rec.label}')" class="btn-icon">✎</button>
+            <button onclick="deleteRecording('${rec.id}', '${rec.file_url}')" class="btn-icon delete">✕</button>
         </div>
-    `).join('');
+    </div>
+`).join('');
 }
 
 // Handle single selection for playback
@@ -124,3 +128,42 @@ document.getElementById('stopBtn').onclick = () => {
 
 // Initial load of the list
 fetchRecordings();
+
+async function renameRecording(id, oldLabel) {
+    const newLabel = window.prompt("Enter a new name for this recording:", oldLabel);
+    
+    if (newLabel && newLabel !== oldLabel) {
+        const { error } = await mayuDb
+            .from('recordings')
+            .update({ label: newLabel })
+            .eq('id', id); // 'eq' means 'equal to' - find the row where ID matches
+
+        if (error) alert("Rename failed");
+        else fetchRecordings(); // Refresh the list
+    }
+}
+
+async function deleteRecording(id, fileUrl) {
+    if (!confirm("Are you sure you want to delete this recording?")) return;
+
+    // Step A: Extract the filename from the URL 
+    // (e.g., from '.../voice_123.wav' we get 'voice_123.wav')
+    const fileName = fileUrl.split('/').pop();
+
+    // Step B: Delete from Storage
+    const { error: storageError } = await mayuDb.storage
+        .from('mayu-recordings')
+        .remove([fileName]);
+
+    if (storageError) return alert("Could not delete file from cloud.");
+
+    // Step C: Delete from Table
+    const { error: dbError } = await mayuDb
+        .from('recordings')
+        .delete()
+        .eq('id', id);
+
+    if (dbError) alert("Could not delete record from list.");
+    else fetchRecordings();
+}
+
