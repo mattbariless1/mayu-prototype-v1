@@ -1,6 +1,9 @@
+// 1. Configuration
 const SUPABASE_URL = 'https://lnxgiuebbdoaqlmeyujj.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_SNWgZmd5pTlRQJ601FGG7A_5t3vEXea';
-const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const SUPABASE_KEY = 'YOUR_PUBLISHABLE_KEY_HERE'; // Replace with your actual key
+
+// Initialize the client with a unique name 'mayuDb'
+const mayuDb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let mediaRecorder;
 let audioChunks = [];
@@ -10,7 +13,7 @@ let selectedFileUrl = null;
 const recordBtn = document.getElementById('recordBtn');
 const status = document.getElementById('status');
 
-// 1. Handle Recording
+// 2. Recording Logic
 recordBtn.onclick = async () => {
     if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
@@ -18,54 +21,72 @@ recordBtn.onclick = async () => {
         return;
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream);
-    audioChunks = [];
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
 
-    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-    
-    mediaRecorder.onstop = async () => {
-        status.innerText = "Uploading to Mayu Cloud...";
-        const blob = new Blob(audioChunks, { type: 'audio/wav' });
-        await uploadToSupabase(blob);
-    };
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        
+        mediaRecorder.onstop = async () => {
+            status.innerText = "Uploading to Mayu Cloud...";
+            const blob = new Blob(audioChunks, { type: 'audio/wav' });
+            await uploadToSupabase(blob);
+        };
 
-    mediaRecorder.start();
-    recordBtn.innerText = "Stop";
-    status.innerText = "Recording... (60s limit)";
+        mediaRecorder.start();
+        recordBtn.innerText = "Stop";
+        status.innerText = "Recording... (60s limit)";
 
-    // Auto-stop after 60 seconds
-    setTimeout(() => {
-        if (mediaRecorder.state === "recording") mediaRecorder.stop();
-    }, 60000);
+        // Safety limit
+        setTimeout(() => {
+            if (mediaRecorder.state === "recording") mediaRecorder.stop();
+        }, 60000);
+
+    } catch (err) {
+        console.error("Microphone access denied:", err);
+        status.innerText = "Error: Mic access denied.";
+    }
 };
 
-// 2. Upload Logic
+// 3. Backend Logic (Upload & Log)
 async function uploadToSupabase(blob) {
     const fileName = `voice_${Date.now()}.wav`;
     
-    const { data, error } = await supabase.storage
+    // Use 'mayuDb' instead of 'supabase'
+    const { data, error } = await mayuDb.storage
         .from('mayu-recordings')
         .upload(fileName, blob);
 
-    if (error) return alert("Upload error");
+    if (error) {
+        console.error("Storage Error:", error);
+        return status.innerText = "Upload failed.";
+    }
 
-    const { data: { publicUrl } } = supabase.storage
+    const { data: { publicUrl } } = mayuDb.storage
         .from('mayu-recordings')
         .getPublicUrl(fileName);
 
-    await supabase.from('recordings').insert([{ 
+    const { error: dbError } = await mayuDb.from('recordings').insert([{ 
         label: `Recording ${new Date().toLocaleTimeString()}`, 
         file_url: publicUrl 
     }]);
+
+    if (dbError) console.error("Database Error:", dbError);
 
     status.innerText = "Saved.";
     fetchRecordings();
 }
 
-// 3. Fetch & List Logic
+// 4. Interface Logic (Fetch & List)
 async function fetchRecordings() {
-    const { data } = await supabase.from('recordings').select('*').order('created_at', { ascending: false });
+    const { data, error } = await mayuDb
+        .from('recordings')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+    if (error) return console.error("Fetch Error:", error);
+
     const list = document.getElementById('recordingsList');
     list.innerHTML = data.map(rec => `
         <div class="recording-item">
@@ -75,20 +96,24 @@ async function fetchRecordings() {
     `).join('');
 }
 
-// Ensure only one checkbox is selected
+// Handle single selection for playback
 window.handleSelect = (checkbox) => {
     const checkboxes = document.getElementsByName('rec-select');
     checkboxes.forEach((item) => { if (item !== checkbox) item.checked = false; });
     selectedFileUrl = checkbox.checked ? checkbox.value : null;
 };
 
-// 4. Playback Logic
+// 5. Playback Logic
 document.getElementById('playBtn').onclick = () => {
     if (!selectedFileUrl) return alert("Please select a recording first.");
     audioPlayer.src = selectedFileUrl;
     audioPlayer.play();
 };
 
-document.getElementById('stopBtn').onclick = () => audioPlayer.pause();
+document.getElementById('stopBtn').onclick = () => {
+    audioPlayer.pause();
+    audioPlayer.currentTime = 0;
+};
 
-fetchRecordings(); // Initial load
+// Initial load of the list
+fetchRecordings();
