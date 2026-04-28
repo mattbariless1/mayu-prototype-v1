@@ -1,19 +1,119 @@
-// 1. Configuration
-const SUPABASE_URL = 'https://lnxgiuebbdoaqlmeyujj.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_SNWgZmd5pTlRQJ601FGG7A_5t3vEXea'; // Replace with your actual key
+/**
+ * MAYU PROTOTYPE V1 - RECONCILED APP.JS
+ * Includes: Supabase Storage/DB, Local RNBO Media, and Cloud Mix Engine
+ */
 
-// Initialize the client with a unique name 'mayuDb'
+// --- 1. CONFIGURATION ---
+const SUPABASE_URL = 'https://lnxgiuebbdoaqlmeyujj.supabase.co'; 
+const SUPABASE_KEY = 'sb_publishable_SNWgZmd5pTlRQJ601FGG7A_5t3vEXea'; 
 const mayuDb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// --- 2. GLOBAL STATE ---
 let mediaRecorder;
 let audioChunks = [];
-let audioPlayer = new Audio();
+let audioPlayer = new Audio(); // For basic previewing
 let selectedFileUrl = null;
 
-const recordBtn = document.getElementById('recordBtn');
-const status = document.getElementById('status');
+// RNBO State
+let rnboDevice;
+let audioContext;
+let mixIsPlaying = false;
 
-// 2. Recording Logic
+// UI Elements
+const status = document.getElementById('status');
+const recordBtn = document.getElementById('recordBtn');
+const playMixBtn = document.getElementById('playMixBtn');
+
+// ==========================================
+// 3. RNBO ENGINE (The Back-End)
+// ==========================================
+
+async function setupRNBO() {
+    try {
+        const WAContext = window.AudioContext || window.webkitAudioContext;
+        audioContext = new WAContext();
+
+        // Load the patcher export
+        const response = await fetch('mayu-prototype-v1.export.json');
+        const patcher = await response.json();
+
+        // Create the RNBO Device
+        rnboDevice = await RNBO.createDevice({ context: audioContext, patcher });
+        rnboDevice.node.connect(audioContext.destination);
+
+        // Standard Loader: Handles local files in /media folder via dependencies.json
+        status.innerText = "Loading ambient tracks...";
+        await rnboDevice.loadDependencies(); 
+        
+        setupParamListeners();
+        status.innerText = "DSP Ready";
+    } catch (err) {
+        console.error("RNBO Setup Error:", err);
+        status.innerText = "DSP Error: Check Console";
+    }
+}
+
+// Manual helper for the dynamic Supabase recordings
+async function loadCloudAudio(url, bufferId) {
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    await rnboDevice.setDataBuffer(bufferId, audioBuffer);
+}
+
+function setupParamListeners() {
+    const selector = document.getElementById('ambientSelect');
+    if (selector) {
+        selector.onchange = (e) => {
+            if (rnboDevice) {
+                const param = rnboDevice.parametersById.get("which_ambient");
+                if (param) param.value = parseFloat(e.target.value);
+            }
+        };
+    }
+}
+
+// ==========================================
+// 4. MIX PLAYBACK LOGIC
+// ==========================================
+
+playMixBtn.onclick = async () => {
+    if (!selectedFileUrl) return alert("Please select a recording from the list first.");
+    
+    // Lazy-load RNBO on first interaction
+    if (!rnboDevice) await setupRNBO();
+    
+    // Resume context (required by browsers)
+    if (audioContext.state === 'suspended') await audioContext.resume();
+
+    if (!mixIsPlaying) {
+        status.innerText = "Syncing cloud recording...";
+        
+        try {
+            // Inject the selected Supabase file into the voice buffer
+            await loadCloudAudio(selectedFileUrl, 'voice_trk');
+            
+            mixIsPlaying = true;
+            rnboDevice.parametersById.get("mix_state").value = 1;
+            playMixBtn.innerText = "Stop Mayu Mix";
+            status.innerText = "Mix Playing!";
+        } catch (err) {
+            console.error("Sync Error:", err);
+            status.innerText = "Sync Failed (CORS?)";
+        }
+    } else {
+        // Toggle Stop
+        mixIsPlaying = false;
+        rnboDevice.parametersById.get("mix_state").value = 0;
+        playMixBtn.innerText = "Play Mayu Mix";
+        status.innerText = "Ready";
+    }
+};
+
+// ==========================================
+// 5. RECORDING & SUPABASE UPLOAD
+// ==========================================
+
 recordBtn.onclick = async () => {
     if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
@@ -29,7 +129,7 @@ recordBtn.onclick = async () => {
         mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
         
         mediaRecorder.onstop = async () => {
-            status.innerText = "Uploading to Mayu Cloud...";
+            status.innerText = "Uploading to Cloud...";
             const blob = new Blob(audioChunks, { type: 'audio/wav' });
             await uploadToSupabase(blob);
         };
@@ -38,34 +138,28 @@ recordBtn.onclick = async () => {
         recordBtn.innerText = "Stop";
         status.innerText = "Recording... (60s limit)";
 
-        // Safety limit
+        // Auto-stop at 60s
         setTimeout(() => {
             if (mediaRecorder.state === "recording") mediaRecorder.stop();
         }, 60000);
 
     } catch (err) {
-        console.error("Microphone access denied:", err);
+        console.error("Mic Access Denied:", err);
         status.innerText = "Error: Mic access denied.";
     }
 };
 
-// 3. Backend Logic (Upload & Log)
 async function uploadToSupabase(blob) {
     const fileName = `voice_${Date.now()}.wav`;
-    status.innerText = "Uploading...";
-
-    console.log("Attempting upload to bucket: mayu-recordings");
-
-    const { data, error } = await mayuDb.storage
+    
+    const { data, error: storageError } = await mayuDb.storage
         .from('mayu-recordings')
         .upload(fileName, blob);
 
-    if (error) {
-        console.error("Upload failed details:", error);
-        return status.innerText = `Upload Error: ${error.message}`;
+    if (storageError) {
+        console.error("Upload Error:", storageError);
+        return status.innerText = "Upload failed.";
     }
-
-    console.log("Upload successful, logging to database...");
 
     const { data: { publicUrl } } = mayuDb.storage
         .from('mayu-recordings')
@@ -76,16 +170,16 @@ async function uploadToSupabase(blob) {
         file_url: publicUrl 
     }]);
 
-    if (dbError) {
-        console.error("Database Log Error:", dbError);
-        return status.innerText = "File uploaded, but listing failed.";
-    }
+    if (dbError) console.error("Database Log Error:", dbError);
 
     status.innerText = "Saved.";
-    fetchRecordings();
+    fetchRecordings(); // Refresh the list
 }
 
-// 4. Interface Logic (Fetch & List)
+// ==========================================
+// 6. REPOSITORY UI (Fetch, Rename, Delete)
+// ==========================================
+
 async function fetchRecordings() {
     const { data, error } = await mayuDb
         .from('recordings')
@@ -96,74 +190,46 @@ async function fetchRecordings() {
 
     const list = document.getElementById('recordingsList');
     list.innerHTML = data.map(rec => `
-    <div class="recording-item" id="rec-${rec.id}">
-        <input type="checkbox" name="rec-select" value="${rec.file_url}" onchange="handleSelect(this)">
-        <span class="rec-label">${rec.label}</span>
-        <div class="item-actions">
-            <button onclick="renameRecording('${rec.id}', '${rec.label}')" class="btn-icon">✎</button>
-            <button onclick="deleteRecording('${rec.id}', '${rec.file_url}')" class="btn-icon delete">✕</button>
+        <div class="recording-item" id="rec-${rec.id}">
+            <input type="checkbox" name="rec-select" value="${rec.file_url}" onchange="handleSelect(this)">
+            <span class="rec-label">${rec.label}</span>
+            <div class="item-actions">
+                <button onclick="renameRecording('${rec.id}', '${rec.label}')" class="btn-icon">✎</button>
+                <button onclick="deleteRecording('${rec.id}', '${rec.file_url}')" class="btn-icon delete">✕</button>
+            </div>
         </div>
-    </div>
-`).join('');
+    `).join('');
 }
 
-// Handle single selection for playback
+// Maintain single-selection for the mix
 window.handleSelect = (checkbox) => {
     const checkboxes = document.getElementsByName('rec-select');
     checkboxes.forEach((item) => { if (item !== checkbox) item.checked = false; });
     selectedFileUrl = checkbox.checked ? checkbox.value : null;
 };
 
-// 5. Playback Logic
-document.getElementById('playBtn').onclick = () => {
-    if (!selectedFileUrl) return alert("Please select a recording first.");
-    audioPlayer.src = selectedFileUrl;
-    audioPlayer.play();
+window.renameRecording = async (id, oldLabel) => {
+    const newLabel = window.prompt("Enter new name:", oldLabel);
+    if (newLabel && newLabel !== oldLabel) {
+        const { error } = await mayuDb.from('recordings').update({ label: newLabel }).eq('id', id);
+        if (error) alert("Rename failed.");
+        fetchRecordings();
+    }
 };
 
+window.deleteRecording = async (id, fileUrl) => {
+    if (!confirm("Are you sure you want to delete this?")) return;
+    const fileName = fileUrl.split('/').pop();
+
+    await mayuDb.storage.from('mayu-recordings').remove([fileName]);
+    await mayuDb.from('recordings').delete().eq('id', id);
+    fetchRecordings();
+};
+
+// --- Initial Load ---
 document.getElementById('stopBtn').onclick = () => {
     audioPlayer.pause();
     audioPlayer.currentTime = 0;
 };
 
-// Initial load of the list
 fetchRecordings();
-
-async function renameRecording(id, oldLabel) {
-    const newLabel = window.prompt("Enter a new name for this recording:", oldLabel);
-    
-    if (newLabel && newLabel !== oldLabel) {
-        const { error } = await mayuDb
-            .from('recordings')
-            .update({ label: newLabel })
-            .eq('id', id); // 'eq' means 'equal to' - find the row where ID matches
-
-        if (error) alert("Rename failed");
-        else fetchRecordings(); // Refresh the list
-    }
-}
-
-async function deleteRecording(id, fileUrl) {
-    if (!confirm("Are you sure you want to delete this recording?")) return;
-
-    // Step A: Extract the filename from the URL 
-    // (e.g., from '.../voice_123.wav' we get 'voice_123.wav')
-    const fileName = fileUrl.split('/').pop();
-
-    // Step B: Delete from Storage
-    const { error: storageError } = await mayuDb.storage
-        .from('mayu-recordings')
-        .remove([fileName]);
-
-    if (storageError) return alert("Could not delete file from cloud.");
-
-    // Step C: Delete from Table
-    const { error: dbError } = await mayuDb
-        .from('recordings')
-        .delete()
-        .eq('id', id);
-
-    if (dbError) alert("Could not delete record from list.");
-    else fetchRecordings();
-}
-
