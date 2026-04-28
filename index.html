@@ -18,43 +18,40 @@
             </div>
             <h1>MAYU</h1>
             <p class="tagline">love made audible</p>
+            
+            <div class="master-toggle" style="margin-top: 35px; margin-bottom: 10px; display: flex; justify-content: center;">
+                <label class="switch large">
+                    <input type="checkbox" id="mixToggle">
+                    <span class="slider round"></span>
+                </label>
+            </div>
         </header>
 
         <main>
             <section class="controls">
                 <button id="recordBtn" class="btn-pill">Record</button>
-                <div id="status" class="status-text">Ready</div>
-            </section>
+                <div id="status" class="status-text"></div> </section>
 
             <section class="repository">
-                <h3>Recordings</h3>
+                <h3 style="text-align: center;">Recordings</h3>
                 <div id="recordingsList">
                     </div>
+                
+                <div class="utility-panel" style="display: flex; gap: 15px; justify-content: center; margin-top: 25px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.05);">
+                    <button id="playBtn" class="btn-pill secondary">Audition</button>
+                    <button id="stopBtn" class="btn-icon-stop">■</button>
+                </div>
             </section>
 
             <section class="playback-controls">
-                <div class="mix-engine-panel">
-                    <h4>Mayu Mix Engine</h4>
-                    <div class="ambient-selector">
-                        <select id="ambientSelect">
-                            <option value="1">Lullaby Track</option>
-                            <option value="2">Nature Ambience</option>
+                <div class="mix-engine-panel" style="background: rgba(255, 255, 255, 0.03); padding: 20px; border-radius: 15px; margin-top: 20px;">
+                    <h4 style="text-align: center; margin-bottom: 15px; font-weight: normal; opacity: 0.8; letter-spacing: 1px;">Ambient Track</h4>
+                    <div class="ambient-selector" style="display: flex; justify-content: center;">
+                        <select id="ambientSelect" style="padding: 8px 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: inherit; cursor: pointer;">
+                            <option value="1" style="color: black;">Track 1</option>
+                            <option value="2" style="color: black;">Track 2</option>
                         </select>
                     </div>
-                    
-                    <div class="toggle-container">
-                        <span>Mix State: Off</span>
-                        <label class="switch">
-                            <input type="checkbox" id="mixToggle">
-                            <span class="slider round"></span>
-                        </label>
-                        <span>On</span>
-                    </div>
-                </div>
-
-                <div class="utility-panel">
-                    <button id="playBtn" class="btn-pill secondary">Audition</button>
-                    <button id="stopBtn" class="btn-icon-stop">■</button>
                 </div>
             </section>
         </main>

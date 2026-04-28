@@ -1,5 +1,5 @@
 /**
- * MAYU PROTOTYPE V1 - RECONCILED FINAL
+ * MAYU PROTOTYPE V1 - FINAL UI LAYOUT
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -17,12 +17,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let rnboDevice;
     let audioContext;
 
-    // UI Element Selections
+    // UI Elements
     const status = document.getElementById('status');
     const recordBtn = document.getElementById('recordBtn');
     const mixToggle = document.getElementById('mixToggle');
-    const playBtn = document.getElementById('playBtn'); // Now "Audition"
-    const stopBtn = document.getElementById('stopBtn'); // Now the square icon
+    const playBtn = document.getElementById('playBtn'); 
+    const stopBtn = document.getElementById('stopBtn'); 
     const listContainer = document.getElementById('recordingsList');
 
     // ==========================================
@@ -37,11 +37,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('mayu-prototype-v1.export.json');
             const patcher = await response.json();
 
-            // Pinned to v1.4.1 logic as per your working version
             rnboDevice = await RNBO.createDevice({ context: audioContext, patcher });
             rnboDevice.node.connect(audioContext.destination);
 
-            status.innerText = "Loading ambient tracks...";
+            console.log("Loading ambient tracks...");
             const depResponse = await fetch('dependencies.json');
             const dependencies = await depResponse.json();
 
@@ -52,10 +51,9 @@ document.addEventListener('DOMContentLoaded', () => {
             
             syncAmbientSelection();
             setupParamListeners();
-            status.innerText = "DSP Ready";
+            console.log("DSP Ready");
         } catch (err) {
             console.error("RNBO Setup Error:", err);
-            status.innerText = "DSP Error.";
         }
     }
 
@@ -80,18 +78,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
-    // 4. PLAYBACK & MIX LOGIC (Updated to Toggle)
+    // 4. PLAYBACK & MIX LOGIC 
     // ==========================================
 
-    // Audition (Standard Browser Preview)
+    // Audition (Preview)
     playBtn.onclick = () => {
         if (!selectedFileUrl) return alert("Please select a recording to audition.");
         audioPlayer.src = selectedFileUrl;
         audioPlayer.play();
-        status.innerText = "Auditioning...";
     };
 
-    // Mayu Mix Engine (RNBO Toggle)
+    // Mayu Mix Toggle
     mixToggle.onchange = async (e) => {
         if (!selectedFileUrl) {
             alert("Please select a recording first.");
@@ -105,33 +102,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const state = e.target.checked ? 1 : 0;
         
         if (state === 1) {
-            status.innerText = "Syncing mix...";
-            // Injects voice into the voice_trk buffer
             await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk');
-            
-            // Fires the 1 to trigger your [sel 0 1] and [metro] logic in RNBO
             rnboDevice.parametersById.get("mix_state").value = 1;
-            status.innerText = "Mix: Active";
         } else {
-            // Fires the 0 to trigger your [set stop] logic in RNBO
             rnboDevice.parametersById.get("mix_state").value = 0;
-            status.innerText = "Mix: Stopped";
         }
     };
 
-    // Universal Stop (Kills Mix and Audition)
+    // Universal Stop
     stopBtn.onclick = () => {
         audioPlayer.pause();
         audioPlayer.currentTime = 0;
         if (rnboDevice) {
             rnboDevice.parametersById.get("mix_state").value = 0;
-            mixToggle.checked = false; // Visual reset of the switch
+            mixToggle.checked = false; 
         }
-        status.innerText = "Stopped.";
     };
 
     // ==========================================
-    // 5. RECORDING & SUPABASE
+    // 5. RECORDING & SUPABASE 
     // ==========================================
 
     recordBtn.onclick = async () => {
@@ -165,6 +154,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (error) return status.innerText = "Upload failed.";
         const { data: { publicUrl } } = mayuDb.storage.from('mayu-recordings').getPublicUrl(fileName);
         await mayuDb.from('recordings').insert([{ label: `Recording ${new Date().toLocaleTimeString()}`, file_url: publicUrl }]);
+        
+        status.innerText = "Saved.";
         fetchRecordings();
     }
 
@@ -210,6 +201,5 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchRecordings();
     };
 
-    status.innerText = "Ready";
     fetchRecordings();
 });
