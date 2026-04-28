@@ -6,7 +6,6 @@
     <title>Mayu | Prototype</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital@0;1&family=Inter:wght@300;400&display=swap" rel="stylesheet">
-    <script src="https://cdn.cycling74.com/rnbo/latest/rnbo.min.js"></script>
 </head>
 <body>
 
@@ -35,19 +34,23 @@
 
             <section class="playback-controls">
                 <div class="ambient-selector" style="margin-bottom: 15px;">
-                        <label for="ambientSelect" style="font-size: 0.9rem; opacity: 0.7;">Ambient Track:</label>
+                    <label for="ambientSelect" style="font-size: 0.9rem; opacity: 0.7;">Ambient Track:</label>
                     <select id="ambientSelect" style="padding: 5px; border-radius: 5px; border: 1px solid #ccc;">
                         <option value="1">Track 1</option>
                         <option value="2">Track 2</option>
                     </select>
                 </div>
 
-                <button id="playMixBtn" class="btn-pill secondary">Play Mayu Mix</button>
-                <button id="stopBtn" class="btn-pill secondary">Stop Preview</button>
+                <div class="button-group" style="display: flex; gap: 10px; justify-content: center;">
+                    <button id="playBtn" class="btn-pill secondary">Play Selection</button>
+                    <button id="playMixBtn" class="btn-pill secondary">Play Mayu Mix</button>
+                    <button id="stopBtn" class="btn-pill secondary">Stop</button>
+                </div>
             </section>
         </main>
     </div>
 
+    <script src="https://c74-public.nyc3.digitaloceanspaces.com/rnbo/1.4.1/rnbo.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="app.js"></script>
 </body>
