@@ -1,6 +1,6 @@
 // --- 1. CONFIGURATION ---
 const SUPABASE_URL = 'https://lnxgiuebbdoaqlmeyujj.supabase.co'; 
-const SUPABASE_KEY = 'YOUR_PUBLISHABLE_KEY_HERE'; 
+const SUPABASE_KEY = 'sb_publishable_SNWgZmd5pTlRQJ601FGG7A_5t3vEXea'; 
 const mayuDb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // --- 2. GLOBAL STATE ---
