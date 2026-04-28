@@ -33,18 +33,28 @@
             </section>
 
             <section class="playback-controls">
-                <div class="ambient-selector" style="margin-bottom: 15px;">
-                    <label for="ambientSelect" style="font-size: 0.9rem; opacity: 0.7;">Ambient Track:</label>
-                    <select id="ambientSelect" style="padding: 5px; border-radius: 5px; border: 1px solid #ccc;">
-                        <option value="1">Track 1</option>
-                        <option value="2">Track 2</option>
-                    </select>
+                <div class="mix-engine-panel">
+                    <h4>Mayu Mix Engine</h4>
+                    <div class="ambient-selector">
+                        <select id="ambientSelect">
+                            <option value="1">Lullaby Track</option>
+                            <option value="2">Nature Ambience</option>
+                        </select>
+                    </div>
+                    
+                    <div class="toggle-container">
+                        <span>Mix State: Off</span>
+                        <label class="switch">
+                            <input type="checkbox" id="mixToggle">
+                            <span class="slider round"></span>
+                        </label>
+                        <span>On</span>
+                    </div>
                 </div>
 
-                <div class="button-group" style="display: flex; gap: 10px; justify-content: center;">
-                    <button id="playBtn" class="btn-pill secondary">Play Selection</button>
-                    <button id="playMixBtn" class="btn-pill secondary">Play Mayu Mix</button>
-                    <button id="stopBtn" class="btn-pill secondary">Stop</button>
+                <div class="utility-panel">
+                    <button id="playBtn" class="btn-pill secondary">Audition</button>
+                    <button id="stopBtn" class="btn-icon-stop">■</button>
                 </div>
             </section>
         </main>
