@@ -228,22 +228,29 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const loadToOffline = async (url, bufferId) => {
             const res = await fetch(url);
-            const arrayBuf = await res.arrayBuffer();
+            const arrayBuf = await res.arrayBuf();
             const audioBuf = await offlineContext.decodeAudioData(arrayBuf);
             await renderDevice.setDataBuffer(bufferId, audioBuf);
         };
 
-        await loadToOffline(`media/${ambientId}.wav`, ambientId);
-        await loadToOffline(selectedFileUrl, 'voice_trk');
+        // Use try/catch to catch any missing file errors
+        try {
+            await loadToOffline(`media/${ambientId}.wav`, ambientId);
+            await loadToOffline(selectedFileUrl, 'voice_trk');
+        } catch (err) {
+            console.error("Asset Load Error:", err);
+            exportStatus.innerText = "Error loading audio files.";
+            return;
+        }
 
-        // 4. SCHEDULE THE START
-        // We send the 'mix_state' = 1 event at time 0 (sample 0)
+        // 4. CORRECTED SCHEDULING
+        // We must use RNBO.ParameterEvent to schedule changes in an offline context
         const mixParam = renderDevice.parametersById.get("mix_state");
-        mixParam.setValueAtTime(1, 0); 
-        
-        // Ensure the correct ambient track is selected in the render engine
         const ambientParam = renderDevice.parametersById.get("which_ambient");
-        ambientParam.setValueAtTime(parseFloat(document.getElementById('ambientSelect').value), 0);
+
+        // Schedule the Mix to start and the Ambient Track selection at time 0
+        renderDevice.scheduleEvent(new RNBO.ParameterEvent(0, mixParam.index, 1));
+        renderDevice.scheduleEvent(new RNBO.ParameterEvent(0, ambientParam.index, parseFloat(document.getElementById('ambientSelect').value)));
 
         // 5. THE BIG CRUNCH (Rendering)
         exportStatus.innerText = "Rendering 10-minute soundscape... (Processing)";
@@ -266,57 +273,4 @@ document.addEventListener('DOMContentLoaded', () => {
         
         exportStatus.innerText = "Download Complete!";
     };
-
-    // --- WAV ENCODING HELPER ---
-    // This takes the raw AudioBuffer and adds the header info so it opens in iTunes/Quicktime
-    function bufferToWav(abuffer) {
-        let numOfChan = abuffer.numberOfChannels,
-            length = abuffer.length * numOfChan * 2 + 44,
-            buffer = new ArrayBuffer(length),
-            view = new DataView(buffer),
-            channels = [], i, sample,
-            offset = 0,
-            pos = 0;
-
-        // Write WAV header
-        setUint32(0x46464952);                         // "RIFF"
-        setUint32(length - 8);                         // file length - 8
-        setUint32(0x45564157);                         // "WAVE"
-        setUint32(0x20746d66);                         // "fmt " chunk
-        setUint32(16);                                 // length = 16
-        setUint16(1);                                  // PCM (uncompressed)
-        setUint16(numOfChan);
-        setUint32(abuffer.sampleRate);
-        setUint32(abuffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
-        setUint16(numOfChan * 2);                      // block-align
-        setUint16(16);                                 // 16-bit
-        setUint32(0x61746164);                         // "data" - chunk
-        setUint32(length - pos - 4);                   // chunk length
-
-        // Write interleaved samples
-        for(i = 0; i < abuffer.numberOfChannels; i++)
-            channels.push(abuffer.getChannelData(i));
-
-        while(pos < length) {
-            for(i = 0; i < numOfChan; i++) {             // interleave channels
-                sample = Math.max(-1, Math.min(1, channels[i][offset])); // clamp
-                sample = (sample < 0 ? sample * 0x8000 : sample * 0x7FFF); // scale to 16-bit signed int
-                view.setInt16(pos, sample, true);          // write 16-bit sample
-                pos += 2;
-            }
-            offset++;                                     // next sample chunk
-        }
-
-        return new Blob([buffer], {type: "audio/wav"});
-
-        function setUint16(data) {
-            view.setUint16(pos, data, true);
-            pos += 2;
-        }
-
-        function setUint32(data) {
-            view.setUint32(pos, data, true);
-            pos += 4;
-        }
-    }
 });
