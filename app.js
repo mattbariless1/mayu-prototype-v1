@@ -1,6 +1,6 @@
 /**
- * MAYU PROTOTYPE V1 - PRODUCTION ENGINE (FINAL RECONCILED)
- * Includes: Supabase CRUD, RNBO Real-time Mix, and 10-Min Offline Renderer.
+ * MAYU PROTOTYPE V1 - PRODUCTION ENGINE (RECONCILED)
+ * Includes: Permissive Parameter Search, 10-Min Offline Renderer, and Supabase CRUD.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -22,8 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const status = document.getElementById('status');
     const recordBtn = document.getElementById('recordBtn');
     const mixToggle = document.getElementById('mixToggle');
-    const playBtn = document.getElementById('playBtn'); // Audition
-    const stopBtn = document.getElementById('stopBtn'); // ■
+    const playBtn = document.getElementById('playBtn'); 
+    const stopBtn = document.getElementById('stopBtn'); 
     const exportBtn = document.getElementById('exportWavBtn');
     const exportStatus = document.getElementById('exportStatus');
     const listContainer = document.getElementById('recordingsList');
@@ -60,10 +60,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /**
-     * Unified Helper to load audio into RNBO buffers.
-     * Uses arrayBuffer() correctly to avoid TypeError.
-     */
     async function loadAudioIntoBuffer(url, bufferId, device, context) {
         const response = await fetch(url);
         const arrayBuffer = await response.arrayBuffer(); 
@@ -74,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function syncAmbientSelection() {
         const selector = document.getElementById('ambientSelect');
         if (selector && rnboDevice) {
-            const param = rnboDevice.parametersById.get("which_ambient");
+            const param = findParam(rnboDevice, "which_ambient");
             if (param) param.value = parseFloat(selector.value);
         }
     }
@@ -82,6 +78,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function setupParamListeners() {
         const selector = document.getElementById('ambientSelect');
         if (selector) selector.onchange = () => syncAmbientSelection();
+    }
+
+    // Helper to find parameters regardless of export prefixing
+    function findParam(device, searchStr) {
+        return device.parameters.find(p => 
+            p.id.toLowerCase().includes(searchStr.toLowerCase()) || 
+            p.name.toLowerCase().includes(searchStr.toLowerCase())
+        );
     }
 
     // ==========================================
@@ -103,11 +107,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!rnboDevice) await setupRNBO();
         if (audioContext.state === 'suspended') await audioContext.resume();
 
+        const mixParam = findParam(rnboDevice, "mix_state");
         if (e.target.checked) {
             await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk', rnboDevice, audioContext);
-            rnboDevice.parametersById.get("mix_state").value = 1;
+            if (mixParam) mixParam.value = 1;
         } else {
-            rnboDevice.parametersById.get("mix_state").value = 0;
+            if (mixParam) mixParam.value = 0;
         }
     };
 
@@ -115,13 +120,14 @@ document.addEventListener('DOMContentLoaded', () => {
         audioPlayer.pause();
         audioPlayer.currentTime = 0;
         if (rnboDevice) {
-            rnboDevice.parametersById.get("mix_state").value = 0;
+            const mixParam = findParam(rnboDevice, "mix_state");
+            if (mixParam) mixParam.value = 0;
             mixToggle.checked = false; 
         }
     };
 
     // ==========================================
-    // 5. PRODUCTION RENDER ENGINE (The Offline Logic)
+    // 5. PRODUCTION RENDER ENGINE
     // ==========================================
 
     exportBtn.onclick = async () => {
@@ -130,75 +136,49 @@ document.addEventListener('DOMContentLoaded', () => {
         exportStatus.innerText = "Initializing Render Engine...";
         
         try {
-            // 1. Setup the 10-minute "Headless" Context
             const renderLengthSeconds = 600; 
             const sampleRate = 48000;
             const lengthSamples = renderLengthSeconds * sampleRate;
             const offlineContext = new OfflineAudioContext(2, lengthSamples, sampleRate);
 
-            // 2. Instantiate a fresh Render Device
             const response = await fetch('mayu-prototype-v1.export.json');
             const patcher = await response.json();
             const renderDevice = await RNBO.createDevice({ context: offlineContext, patcher });
             renderDevice.node.connect(offlineContext.destination);
 
-            // 3. Load Assets
-            exportStatus.innerText = "Loading assets into memory...";
+            exportStatus.innerText = "Loading assets...";
             const ambientId = `ambient_trk_${document.getElementById('ambientSelect').value}`;
             
             await loadAudioIntoBuffer(`media/${ambientId}.wav`, ambientId, renderDevice, offlineContext);
             await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk', renderDevice, offlineContext);
 
-            // 4. ROBUST SCHEDULING
-            // We find the parameters and access their internal AudioParam for native scheduling
-            const getAudioParam = (id) => {
-                const p = renderDevice.parametersById.get(id);
-                // Try .audioParam (Standard) or fall back to .value if for some reason native is hidden
-                return p ? p.audioParam : null;
-            };
+            // SCHEDULING WITH FUZZY SEARCH
+            const pMix = findParam(renderDevice, "mix_state");
+            const pAmb = findParam(renderDevice, "which_ambient");
 
-            const mixAudioParam = getAudioParam("mix_state");
-            const ambientAudioParam = getAudioParam("which_ambient");
-
-            if (!mixAudioParam || !ambientAudioParam) {
-                // If the direct ID fails, search the entire parameter list
-                const findParam = (id) => renderDevice.parameters.find(p => p.id === id || p.name === id);
-                const pMix = findParam("mix_state");
-                const pAmb = findParam("which_ambient");
-                
-                if (pMix && pAmb && pMix.audioParam && pAmb.audioParam) {
-                    console.log("Found params via search fallback.");
-                    // Assign to our local variables
-                    var localMixParam = pMix.audioParam;
-                    var localAmbParam = pAmb.audioParam;
-                } else {
-                    throw new Error("Critical Error: RNBO parameters 'mix_state' or 'which_ambient' not found in patch.");
-                }
-            } else {
-                var localMixParam = mixAudioParam;
-                var localAmbParam = ambientAudioParam;
+            if (!pMix || !pAmb) {
+                console.error("Available parameters in this patch:");
+                console.table(renderDevice.parameters.map(p => ({ id: p.id, name: p.name })));
+                throw new Error("Critical Error: Parameters 'mix_state' or 'which_ambient' not found.");
             }
 
-            // Perform native Web Audio scheduling (Uses SECONDS)
-            localAmbParam.setValueAtTime(parseFloat(document.getElementById('ambientSelect').value), 0);
+            const mixAudioParam = pMix.audioParam;
+            const ambientAudioParam = pAmb.audioParam;
 
+            // Initial Ambient Selection
+            ambientAudioParam.setValueAtTime(parseFloat(document.getElementById('ambientSelect').value), 0);
+
+            // 90-Second Trigger Loop (Seconds)
             for (let t = 0; t < renderLengthSeconds; t += 90) {
-                localMixParam.setValueAtTime(1, t);
+                mixAudioParam.setValueAtTime(1, t);
                 if (t + 85 < renderLengthSeconds) {
-                    localMixParam.setValueAtTime(0, t + 85);
+                    mixAudioParam.setValueAtTime(0, t + 85);
                 }
             }
 
-            // 5. THE BIG CRUNCH
             exportStatus.innerText = "Rendering 10-minute soundscape...";
-            const startTime = performance.now();
-
             const renderedBuffer = await offlineContext.startRendering();
             
-            const endTime = performance.now();
-            console.log(`Render complete in ${((endTime - startTime)/1000).toFixed(2)} seconds.`);
-
-            // 6. ENCODE WAV & DOWNLOAD
             exportStatus.innerText = "Encoding WAV...";
             const wavBlob = bufferToWav(renderedBuffer);
             const url = URL.createObjectURL(wavBlob);
@@ -216,9 +196,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    /**
-     * Helper to encode AudioBuffer to a 16-bit PCM WAV file
-     */
     function bufferToWav(abuffer) {
         let numOfChan = abuffer.numberOfChannels,
             length = abuffer.length * numOfChan * 2 + 44,
@@ -249,7 +226,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
-    // 6. RECORDING & SUPABASE
+    // 6. RECORDING & SUPABASE 
     // ==========================================
 
     recordBtn.onclick = async () => {
@@ -258,7 +235,6 @@ document.addEventListener('DOMContentLoaded', () => {
             recordBtn.innerText = "Record";
             return;
         }
-
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaRecorder = new MediaRecorder(stream);
@@ -289,7 +265,6 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchRecordings() {
         const { data, error } = await mayuDb.from('recordings').select('*').order('created_at', { ascending: false });
         if (error || !data) return;
-
         listContainer.innerHTML = data.map(rec => `
             <div class="recording-item" id="rec-${rec.id}">
                 <input type="checkbox" name="rec-select" value="${rec.file_url}" onchange="handleSelectInternal(this)">
