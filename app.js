@@ -1,6 +1,6 @@
 /**
- * MAYU PROTOTYPE V1 - RECONCILED PRODUCTION ENGINE
- * Includes: Supabase CRUD, RNBO Real-time Mix, and 10-Min Offline Renderer
+ * MAYU PROTOTYPE V1 - PRODUCTION ENGINE (RECONCILED)
+ * Reconciled version fixing RNBO constructor and asset loading issues.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let rnboDevice;
     let audioContext;
 
-    // UI Element Selections
+    // UI Elements
     const status = document.getElementById('status');
     const recordBtn = document.getElementById('recordBtn');
     const mixToggle = document.getElementById('mixToggle');
@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadAudioIntoBuffer(url, bufferId, device, context) {
         const response = await fetch(url);
-        const arrayBuffer = await response.arrayBuffer(); // FIXED
+        const arrayBuffer = await response.arrayBuffer(); 
         const audioBuffer = await context.decodeAudioData(arrayBuffer);
         await device.setDataBuffer(bufferId, audioBuffer);
     }
@@ -96,7 +96,6 @@ document.addEventListener('DOMContentLoaded', () => {
             e.target.checked = false;
             return;
         }
-
         if (!rnboDevice) await setupRNBO();
         if (audioContext.state === 'suspended') await audioContext.resume();
 
@@ -118,7 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // ==========================================
-    // 5. OFFLINE RENDER ENGINE (Methodology 3)
+    // 5. OFFLINE RENDER ENGINE
     // ==========================================
 
     exportBtn.onclick = async () => {
@@ -127,46 +126,60 @@ document.addEventListener('DOMContentLoaded', () => {
         exportStatus.innerText = "Initializing Render Engine...";
         
         try {
-            // 1. Setup the 10-minute "Headless" Context
             const renderLengthSeconds = 600; 
             const sampleRate = 48000;
             const lengthSamples = renderLengthSeconds * sampleRate;
             const offlineContext = new OfflineAudioContext(2, lengthSamples, sampleRate);
 
-            // 2. Instantiate the Render Device
             const response = await fetch('mayu-prototype-v1.export.json');
             const patcher = await response.json();
             const renderDevice = await RNBO.createDevice({ context: offlineContext, patcher });
             renderDevice.node.connect(offlineContext.destination);
 
-            // 3. Load Assets into the Render Device
             exportStatus.innerText = "Loading assets into memory...";
             const ambientId = `ambient_trk_${document.getElementById('ambientSelect').value}`;
             
             await loadAudioIntoBuffer(`media/${ambientId}.wav`, ambientId, renderDevice, offlineContext);
             await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk', renderDevice, offlineContext);
 
-            // 4. SCHEDULING (Refined Version-Safe Logic)
+            // 4. SCHEDULING (Compatible "Plain Object" approach)
             const mixParam = renderDevice.parametersById.get("mix_state");
             const ambientParam = renderDevice.parametersById.get("which_ambient");
 
+            // We schedule using the scheduleEvent method with an object literal.
+            // This bypasses the need for the RNBO.ParameterEvent constructor.
+            
             // Initial Ambient Selection
-            renderDevice.scheduleEvent(new RNBO.ParameterEvent(0, ambientParam.index, parseFloat(document.getElementById('ambientSelect').value)));
+            renderDevice.scheduleEvent({
+                type: "ParameterEvent",
+                time: 0,
+                index: ambientParam.index,
+                value: parseFloat(document.getElementById('ambientSelect').value)
+            });
 
             // 90-Second Trigger Loop
             for (let t = 0; t < renderLengthSeconds; t += 90) {
                 const startTimeMs = t * 1000;
                 
-                // Trigger Voice/Ducking sequence
-                renderDevice.scheduleEvent(new RNBO.ParameterEvent(startTimeMs, mixParam.index, 1));
+                // Trigger Voice/Ducking
+                renderDevice.scheduleEvent({
+                    type: "ParameterEvent",
+                    time: startTimeMs,
+                    index: mixParam.index,
+                    value: 1
+                });
                 
-                // Reset at 85s to ensure the next '1' is seen as a new trigger
+                // Reset at 85s to ensure the next interval is treated as a new trigger
                 if (t + 85 < renderLengthSeconds) {
-                    renderDevice.scheduleEvent(new RNBO.ParameterEvent((t + 85) * 1000, mixParam.index, 0));
+                    renderDevice.scheduleEvent({
+                        type: "ParameterEvent",
+                        time: (t + 85) * 1000,
+                        index: mixParam.index,
+                        value: 0
+                    });
                 }
             }
 
-            // 5. THE BIG CRUNCH
             exportStatus.innerText = "Rendering 10-minute soundscape...";
             const startTime = performance.now();
 
@@ -175,7 +188,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const endTime = performance.now();
             console.log(`Render complete in ${((endTime - startTime)/1000).toFixed(2)} seconds.`);
 
-            // 6. ENCODE & DOWNLOAD
             exportStatus.innerText = "Encoding WAV...";
             const wavBlob = bufferToWav(renderedBuffer);
             const url = URL.createObjectURL(wavBlob);
@@ -233,7 +245,6 @@ document.addEventListener('DOMContentLoaded', () => {
             recordBtn.innerText = "Record";
             return;
         }
-
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaRecorder = new MediaRecorder(stream);
@@ -264,7 +275,6 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchRecordings() {
         const { data, error } = await mayuDb.from('recordings').select('*').order('created_at', { ascending: false });
         if (error || !data) return;
-
         listContainer.innerHTML = data.map(rec => `
             <div class="recording-item" id="rec-${rec.id}">
                 <input type="checkbox" name="rec-select" value="${rec.file_url}" onchange="handleSelectInternal(this)">
