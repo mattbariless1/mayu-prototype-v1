@@ -202,4 +202,42 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     fetchRecordings();
+    const exportBtn = document.getElementById('exportWavBtn');
+    const exportStatus = document.getElementById('exportStatus');
+
+    exportBtn.onclick = async () => {
+        if (!selectedFileUrl) return alert("Please select a recording to export.");
+        
+        exportStatus.innerText = "Initializing Render Engine...";
+        
+        // 1. Setup the 10-minute "Headless" Context
+        const renderLengthSeconds = 600; 
+        const sampleRate = 48000;
+        const lengthSamples = renderLengthSeconds * sampleRate;
+        const offlineContext = new OfflineAudioContext(2, lengthSamples, sampleRate);
+
+        // 2. Instantiate a second, invisible RNBO device
+        const response = await fetch('mayu-prototype-v1.export.json');
+        const patcher = await response.json();
+        const renderDevice = await RNBO.createDevice({ context: offlineContext, patcher });
+        renderDevice.node.connect(offlineContext.destination);
+
+        // 3. Load the Ambient & Voice files into the Render Device
+        exportStatus.innerText = "Loading assets into memory...";
+        const ambientId = `ambient_trk_${document.getElementById('ambientSelect').value}`;
+        
+        // Helper to load specifically into the offline context
+        const loadToOffline = async (url, bufferId) => {
+            const res = await fetch(url);
+            const arrayBuf = await res.arrayBuffer();
+            const audioBuf = await offlineContext.decodeAudioData(arrayBuf);
+            await renderDevice.setDataBuffer(bufferId, audioBuf);
+        };
+
+        await loadToOffline(`media/${ambientId}.wav`, ambientId);
+        await loadToOffline(selectedFileUrl, 'voice_trk');
+
+        exportStatus.innerText = "Render Engine Ready. Ready for scheduling?";
+        console.log("Offline device initialized:", renderDevice);
+    };
 });

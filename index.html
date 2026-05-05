@@ -46,6 +46,10 @@
             <section class="playback-controls">
                 <div class="mix-engine-panel" style="background: rgba(255, 255, 255, 0.03); padding: 20px; border-radius: 15px; margin-top: 20px;">
                     <h4 style="text-align: center; margin-bottom: 15px; font-weight: normal; opacity: 0.8; letter-spacing: 1px;">Ambient Track</h4>
+                    <div class="export-container" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                        <button id="exportWavBtn" class="btn-pill" style="background: #4a5d8a; width: 100%;">Export 10-Minute WAV</button>
+                        <div id="exportStatus" style="font-size: 0.75rem; margin-top: 10px; opacity: 0.6; text-align: center;"></div>
+                    </div>
                     <div class="ambient-selector" style="display: flex; justify-content: center;">
                         <select id="ambientSelect" style="padding: 8px 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: inherit; cursor: pointer;">
                             <option value="1" style="color: black;">Track 1</option>
