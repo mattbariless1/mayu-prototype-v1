@@ -1,6 +1,6 @@
 /**
- * MAYU PROTOTYPE V1 - PRODUCTION ENGINE (RECONCILED)
- * Includes: Permissive Parameter Search, 10-Min Offline Renderer, and Supabase CRUD.
+ * MAYU PROTOTYPE V1 - PRODUCTION ENGINE (FINAL RECONCILED)
+ * Uses native OfflineAudioContext suspend/resume scheduling to bypass RNBO constructor bugs.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -22,8 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const status = document.getElementById('status');
     const recordBtn = document.getElementById('recordBtn');
     const mixToggle = document.getElementById('mixToggle');
-    const playBtn = document.getElementById('playBtn'); 
-    const stopBtn = document.getElementById('stopBtn'); 
+    const playBtn = document.getElementById('playBtn'); // Audition
+    const stopBtn = document.getElementById('stopBtn'); // ■
     const exportBtn = document.getElementById('exportWavBtn');
     const exportStatus = document.getElementById('exportStatus');
     const listContainer = document.getElementById('recordingsList');
@@ -80,7 +80,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (selector) selector.onchange = () => syncAmbientSelection();
     }
 
-    // Helper to find parameters regardless of export prefixing
     function findParam(device, searchStr) {
         return device.parameters.find(p => 
             p.id.toLowerCase().includes(searchStr.toLowerCase()) || 
@@ -146,39 +145,50 @@ document.addEventListener('DOMContentLoaded', () => {
             const renderDevice = await RNBO.createDevice({ context: offlineContext, patcher });
             renderDevice.node.connect(offlineContext.destination);
 
-            exportStatus.innerText = "Loading assets...";
+            exportStatus.innerText = "Loading assets into memory...";
             const ambientId = `ambient_trk_${document.getElementById('ambientSelect').value}`;
             
             await loadAudioIntoBuffer(`media/${ambientId}.wav`, ambientId, renderDevice, offlineContext);
             await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk', renderDevice, offlineContext);
 
-            // SCHEDULING WITH FUZZY SEARCH
             const pMix = findParam(renderDevice, "mix_state");
             const pAmb = findParam(renderDevice, "which_ambient");
 
-            if (!pMix || !pAmb) {
-                console.error("Available parameters in this patch:");
-                console.table(renderDevice.parameters.map(p => ({ id: p.id, name: p.name })));
-                throw new Error("Critical Error: Parameters 'mix_state' or 'which_ambient' not found.");
-            }
+            if (!pMix || !pAmb) throw new Error("Parameters not found.");
 
-            const mixAudioParam = pMix.audioParam;
-            const ambientAudioParam = pAmb.audioParam;
+            // 4. ROBUST SUSPEND/RESUME SCHEDULING
+            // Set initial state for time 0
+            pAmb.value = parseFloat(document.getElementById('ambientSelect').value);
+            pMix.value = 1; 
 
-            // Initial Ambient Selection
-            ambientAudioParam.setValueAtTime(parseFloat(document.getElementById('ambientSelect').value), 0);
-
-            // 90-Second Trigger Loop (Seconds)
+            // Schedule all future state changes by pausing the render, changing the value, and resuming
             for (let t = 0; t < renderLengthSeconds; t += 90) {
-                mixAudioParam.setValueAtTime(1, t);
-                if (t + 85 < renderLengthSeconds) {
-                    mixAudioParam.setValueAtTime(0, t + 85);
+                const timeOff = t + 85; // 85 seconds
+                const timeOn = t + 90;  // 90 seconds
+
+                if (timeOff < renderLengthSeconds) {
+                    offlineContext.suspend(timeOff).then(() => {
+                        pMix.value = 0;
+                        offlineContext.resume();
+                    });
+                }
+                
+                if (timeOn < renderLengthSeconds) {
+                    offlineContext.suspend(timeOn).then(() => {
+                        pMix.value = 1;
+                        offlineContext.resume();
+                    });
                 }
             }
 
-            exportStatus.innerText = "Rendering 10-minute soundscape...";
+            exportStatus.innerText = "Rendering 10-minute soundscape... (Takes ~10s)";
+            const startTime = performance.now();
+
             const renderedBuffer = await offlineContext.startRendering();
             
+            const endTime = performance.now();
+            console.log(`Render complete in ${((endTime - startTime)/1000).toFixed(2)} seconds.`);
+
             exportStatus.innerText = "Encoding WAV...";
             const wavBlob = bufferToWav(renderedBuffer);
             const url = URL.createObjectURL(wavBlob);
@@ -226,7 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
-    // 6. RECORDING & SUPABASE 
+    // 6. RECORDING & SUPABASE
     // ==========================================
 
     recordBtn.onclick = async () => {
@@ -235,6 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
             recordBtn.innerText = "Record";
             return;
         }
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaRecorder = new MediaRecorder(stream);
@@ -265,6 +276,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchRecordings() {
         const { data, error } = await mayuDb.from('recordings').select('*').order('created_at', { ascending: false });
         if (error || !data) return;
+
         listContainer.innerHTML = data.map(rec => `
             <div class="recording-item" id="rec-${rec.id}">
                 <input type="checkbox" name="rec-select" value="${rec.file_url}" onchange="handleSelectInternal(this)">
