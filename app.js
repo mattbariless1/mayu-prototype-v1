@@ -228,12 +228,11 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const loadToOffline = async (url, bufferId) => {
             const res = await fetch(url);
-            const arrayBuf = await res.arrayBuf();
+            const arrayBuf = await res.arrayBuffer(); // Fixed: arrayBuffer()
             const audioBuf = await offlineContext.decodeAudioData(arrayBuf);
             await renderDevice.setDataBuffer(bufferId, audioBuf);
         };
 
-        // Use try/catch to catch any missing file errors
         try {
             await loadToOffline(`media/${ambientId}.wav`, ambientId);
             await loadToOffline(selectedFileUrl, 'voice_trk');
@@ -243,17 +242,28 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // 4. CORRECTED SCHEDULING
-        // We must use RNBO.ParameterEvent to schedule changes in an offline context
+        // 4. SCHEDULING THE 90-SECOND INTERVALS
         const mixParam = renderDevice.parametersById.get("mix_state");
         const ambientParam = renderDevice.parametersById.get("which_ambient");
 
-        // Schedule the Mix to start and the Ambient Track selection at time 0
-        renderDevice.scheduleEvent(new RNBO.ParameterEvent(0, mixParam.index, 1));
+        // Set the ambient track selection at time 0
         renderDevice.scheduleEvent(new RNBO.ParameterEvent(0, ambientParam.index, parseFloat(document.getElementById('ambientSelect').value)));
 
+        // Explicitly trigger the mix every 90 seconds (90,000 milliseconds)
+        for (let t = 0; t < renderLengthSeconds; t += 90) {
+            const startTimeMs = t * 1000;
+            
+            // Trigger the voice (and the 5s delay you built into the patch)
+            renderDevice.scheduleEvent(new RNBO.ParameterEvent(startTimeMs, mixParam.index, 1));
+            
+            // We reset the parameter briefly before the next trigger to ensure the [sel 0 1] in Max "sees" the next 1
+            if (t + 85 < renderLengthSeconds) {
+                renderDevice.scheduleEvent(new RNBO.ParameterEvent((t + 85) * 1000, mixParam.index, 0));
+            }
+        }
+
         // 5. THE BIG CRUNCH (Rendering)
-        exportStatus.innerText = "Rendering 10-minute soundscape... (Processing)";
+        exportStatus.innerText = "Rendering 10-minute soundscape...";
         const startTime = performance.now();
 
         const renderedBuffer = await offlineContext.startRendering();
