@@ -126,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // ==========================================
-    // 5. PRODUCTION RENDER ENGINE
+    // 5. PRODUCTION RENDER ENGINE (Simplified)
     // ==========================================
 
     exportBtn.onclick = async () => {
@@ -153,41 +153,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const pMix = findParam(renderDevice, "mix_state");
             const pAmb = findParam(renderDevice, "which_ambient");
-            const pPulse = findParam(renderDevice, "offline_voice_pulse"); // New dedicated trigger
 
-            if (!pMix || !pAmb || !pPulse) throw new Error("Parameters not found in RNBO patch.");
+            if (!pMix || !pAmb) throw new Error("Parameters not found in RNBO patch.");
 
-            // 4. ROBUST SUSPEND/RESUME SCHEDULING
-            
-            // Time 0 Initialization: 
-            // - Load correct ambient track.
-            // - Turn the whole patch ON (ambient starts looping).
-            // - Send the FIRST voice trigger (pulse = 1), which plays after your internal 5s delay.
+            // 4. THE MASTER SWITCH
+            // Simply set the ambient track and turn the patch ON. 
+            // Your internal RNBO [metro] and [delay] handle the 10 minutes perfectly!
             pAmb.value = parseFloat(document.getElementById('ambientSelect').value);
             pMix.value = 1; 
-            pPulse.value = 1; 
 
-            // Schedule the repeating Voice pulses (starting at the 90s mark)
-            for (let t = 90; t < renderLengthSeconds; t += 90) {
-                
-                const timeOff = t - 5; // 85s, 175s, 265s...
-                const timeOn = t;      // 90s, 180s, 270s...
-
-                if (timeOff < renderLengthSeconds) {
-                    offlineContext.suspend(timeOff).then(() => {
-                        pPulse.value = 0; // Silently resets the voice track
-                        offlineContext.resume();
-                    });
-                }
-                
-                if (timeOn < renderLengthSeconds) {
-                    offlineContext.suspend(timeOn).then(() => {
-                        pPulse.value = 1; // Sends 'bang' to play the voice track again
-                        offlineContext.resume();
-                    });
-                }
-            }
-
+            // 5. THE BIG CRUNCH
             exportStatus.innerText = "Rendering 10-minute soundscape... (Takes ~10s)";
             const startTime = performance.now();
 
@@ -196,6 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const endTime = performance.now();
             console.log(`Render complete in ${((endTime - startTime)/1000).toFixed(2)} seconds.`);
 
+            // 6. ENCODE & DOWNLOAD
             exportStatus.innerText = "Encoding WAV...";
             const wavBlob = bufferToWav(renderedBuffer);
             const url = URL.createObjectURL(wavBlob);
