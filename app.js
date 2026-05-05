@@ -1,5 +1,6 @@
 /**
- * MAYU PROTOTYPE V1 - FINAL UI LAYOUT
+ * MAYU PROTOTYPE V1 - RECONCILED PRODUCTION ENGINE
+ * Includes: Supabase CRUD, RNBO Real-time Mix, and 10-Min Offline Renderer
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -17,16 +18,18 @@ document.addEventListener('DOMContentLoaded', () => {
     let rnboDevice;
     let audioContext;
 
-    // UI Elements
+    // UI Element Selections
     const status = document.getElementById('status');
     const recordBtn = document.getElementById('recordBtn');
     const mixToggle = document.getElementById('mixToggle');
     const playBtn = document.getElementById('playBtn'); 
     const stopBtn = document.getElementById('stopBtn'); 
+    const exportBtn = document.getElementById('exportWavBtn');
+    const exportStatus = document.getElementById('exportStatus');
     const listContainer = document.getElementById('recordingsList');
 
     // ==========================================
-    // 3. RNBO ENGINE
+    // 3. RNBO ENGINE (Real-time)
     // ==========================================
 
     async function setupRNBO() {
@@ -46,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             for (const dep of dependencies) {
                 const fileUrl = dep.file.startsWith('media/') ? dep.file : `media/${dep.file}`;
-                await loadAudioIntoBuffer(fileUrl, dep.id);
+                await loadAudioIntoBuffer(fileUrl, dep.id, rnboDevice, audioContext);
             }
             
             syncAmbientSelection();
@@ -57,11 +60,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function loadAudioIntoBuffer(url, bufferId) {
+    async function loadAudioIntoBuffer(url, bufferId, device, context) {
         const response = await fetch(url);
-        const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        await rnboDevice.setDataBuffer(bufferId, audioBuffer);
+        const arrayBuffer = await response.arrayBuffer(); // FIXED
+        const audioBuffer = await context.decodeAudioData(arrayBuffer);
+        await device.setDataBuffer(bufferId, audioBuffer);
     }
 
     function syncAmbientSelection() {
@@ -81,14 +84,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // 4. PLAYBACK & MIX LOGIC 
     // ==========================================
 
-    // Audition (Preview)
     playBtn.onclick = () => {
         if (!selectedFileUrl) return alert("Please select a recording to audition.");
         audioPlayer.src = selectedFileUrl;
         audioPlayer.play();
     };
 
-    // Mayu Mix Toggle
     mixToggle.onchange = async (e) => {
         if (!selectedFileUrl) {
             alert("Please select a recording first.");
@@ -99,17 +100,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!rnboDevice) await setupRNBO();
         if (audioContext.state === 'suspended') await audioContext.resume();
 
-        const state = e.target.checked ? 1 : 0;
-        
-        if (state === 1) {
-            await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk');
+        if (e.target.checked) {
+            await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk', rnboDevice, audioContext);
             rnboDevice.parametersById.get("mix_state").value = 1;
         } else {
             rnboDevice.parametersById.get("mix_state").value = 0;
         }
     };
 
-    // Universal Stop
     stopBtn.onclick = () => {
         audioPlayer.pause();
         audioPlayer.currentTime = 0;
@@ -120,7 +118,113 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // ==========================================
-    // 5. RECORDING & SUPABASE 
+    // 5. OFFLINE RENDER ENGINE (Methodology 3)
+    // ==========================================
+
+    exportBtn.onclick = async () => {
+        if (!selectedFileUrl) return alert("Please select a recording to export.");
+        
+        exportStatus.innerText = "Initializing Render Engine...";
+        
+        try {
+            // 1. Setup the 10-minute "Headless" Context
+            const renderLengthSeconds = 600; 
+            const sampleRate = 48000;
+            const lengthSamples = renderLengthSeconds * sampleRate;
+            const offlineContext = new OfflineAudioContext(2, lengthSamples, sampleRate);
+
+            // 2. Instantiate the Render Device
+            const response = await fetch('mayu-prototype-v1.export.json');
+            const patcher = await response.json();
+            const renderDevice = await RNBO.createDevice({ context: offlineContext, patcher });
+            renderDevice.node.connect(offlineContext.destination);
+
+            // 3. Load Assets into the Render Device
+            exportStatus.innerText = "Loading assets into memory...";
+            const ambientId = `ambient_trk_${document.getElementById('ambientSelect').value}`;
+            
+            await loadAudioIntoBuffer(`media/${ambientId}.wav`, ambientId, renderDevice, offlineContext);
+            await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk', renderDevice, offlineContext);
+
+            // 4. SCHEDULING (Refined Version-Safe Logic)
+            const mixParam = renderDevice.parametersById.get("mix_state");
+            const ambientParam = renderDevice.parametersById.get("which_ambient");
+
+            // Initial Ambient Selection
+            renderDevice.scheduleEvent(new RNBO.ParameterEvent(0, ambientParam.index, parseFloat(document.getElementById('ambientSelect').value)));
+
+            // 90-Second Trigger Loop
+            for (let t = 0; t < renderLengthSeconds; t += 90) {
+                const startTimeMs = t * 1000;
+                
+                // Trigger Voice/Ducking sequence
+                renderDevice.scheduleEvent(new RNBO.ParameterEvent(startTimeMs, mixParam.index, 1));
+                
+                // Reset at 85s to ensure the next '1' is seen as a new trigger
+                if (t + 85 < renderLengthSeconds) {
+                    renderDevice.scheduleEvent(new RNBO.ParameterEvent((t + 85) * 1000, mixParam.index, 0));
+                }
+            }
+
+            // 5. THE BIG CRUNCH
+            exportStatus.innerText = "Rendering 10-minute soundscape...";
+            const startTime = performance.now();
+
+            const renderedBuffer = await offlineContext.startRendering();
+            
+            const endTime = performance.now();
+            console.log(`Render complete in ${((endTime - startTime)/1000).toFixed(2)} seconds.`);
+
+            // 6. ENCODE & DOWNLOAD
+            exportStatus.innerText = "Encoding WAV...";
+            const wavBlob = bufferToWav(renderedBuffer);
+            const url = URL.createObjectURL(wavBlob);
+            
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `mayu_render_${Date.now()}.wav`;
+            anchor.click();
+            
+            exportStatus.innerText = "Download Complete!";
+
+        } catch (err) {
+            console.error("Render Error:", err);
+            exportStatus.innerText = "Render failed. Check console.";
+        }
+    };
+
+    // --- WAV ENCODING HELPER ---
+    function bufferToWav(abuffer) {
+        let numOfChan = abuffer.numberOfChannels,
+            length = abuffer.length * numOfChan * 2 + 44,
+            buffer = new ArrayBuffer(length),
+            view = new DataView(buffer),
+            channels = [], i, sample,
+            offset = 0, pos = 0;
+
+        function setUint16(data) { view.setUint16(pos, data, true); pos += 2; }
+        function setUint32(data) { view.setUint32(pos, data, true); pos += 4; }
+
+        setUint32(0x46464952); setUint32(length - 8); setUint32(0x45564157);
+        setUint32(0x20746d66); setUint32(16); setUint16(1); setUint16(numOfChan);
+        setUint32(abuffer.sampleRate); setUint32(abuffer.sampleRate * 2 * numOfChan);
+        setUint16(numOfChan * 2); setUint16(16); setUint32(0x61746164); setUint32(length - pos - 4);
+
+        for(i = 0; i < abuffer.numberOfChannels; i++) channels.push(abuffer.getChannelData(i));
+        while(pos < length) {
+            for(i = 0; i < numOfChan; i++) {
+                sample = Math.max(-1, Math.min(1, channels[i][offset]));
+                sample = (sample < 0 ? sample * 0x8000 : sample * 0x7FFF);
+                view.setInt16(pos, sample, true);
+                pos += 2;
+            }
+            offset++;
+        }
+        return new Blob([buffer], {type: "audio/wav"});
+    }
+
+    // ==========================================
+    // 6. RECORDING & SUPABASE 
     // ==========================================
 
     recordBtn.onclick = async () => {
@@ -154,14 +258,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (error) return status.innerText = "Upload failed.";
         const { data: { publicUrl } } = mayuDb.storage.from('mayu-recordings').getPublicUrl(fileName);
         await mayuDb.from('recordings').insert([{ label: `Recording ${new Date().toLocaleTimeString()}`, file_url: publicUrl }]);
-        
-        status.innerText = "Saved.";
         fetchRecordings();
     }
-
-    // ==========================================
-    // 6. REPOSITORY UI
-    // ==========================================
 
     async function fetchRecordings() {
         const { data, error } = await mayuDb.from('recordings').select('*').order('created_at', { ascending: false });
@@ -202,85 +300,4 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     fetchRecordings();
-    const exportBtn = document.getElementById('exportWavBtn');
-    const exportStatus = document.getElementById('exportStatus');
-
-    exportBtn.onclick = async () => {
-        if (!selectedFileUrl) return alert("Please select a recording to export.");
-        
-        exportStatus.innerText = "Initializing Render Engine...";
-        
-        // 1. Setup the 10-minute "Headless" Context
-        const renderLengthSeconds = 600; 
-        const sampleRate = 48000;
-        const lengthSamples = renderLengthSeconds * sampleRate;
-        const offlineContext = new OfflineAudioContext(2, lengthSamples, sampleRate);
-
-        // 2. Instantiate the Render Device
-        const response = await fetch('mayu-prototype-v1.export.json');
-        const patcher = await response.json();
-        const renderDevice = await RNBO.createDevice({ context: offlineContext, patcher });
-        renderDevice.node.connect(offlineContext.destination);
-
-        // 3. Load Assets
-        exportStatus.innerText = "Loading assets into memory...";
-        const ambientId = `ambient_trk_${document.getElementById('ambientSelect').value}`;
-        
-        const loadToOffline = async (url, bufferId) => {
-            const res = await fetch(url);
-            const arrayBuf = await res.arrayBuffer(); // Fixed: arrayBuffer()
-            const audioBuf = await offlineContext.decodeAudioData(arrayBuf);
-            await renderDevice.setDataBuffer(bufferId, audioBuf);
-        };
-
-        try {
-            await loadToOffline(`media/${ambientId}.wav`, ambientId);
-            await loadToOffline(selectedFileUrl, 'voice_trk');
-        } catch (err) {
-            console.error("Asset Load Error:", err);
-            exportStatus.innerText = "Error loading audio files.";
-            return;
-        }
-
-        // 4. SCHEDULING THE 90-SECOND INTERVALS
-        const mixParam = renderDevice.parametersById.get("mix_state");
-        const ambientParam = renderDevice.parametersById.get("which_ambient");
-
-        // Set the ambient track selection at time 0
-        renderDevice.scheduleEvent(new RNBO.ParameterEvent(0, ambientParam.index, parseFloat(document.getElementById('ambientSelect').value)));
-
-        // Explicitly trigger the mix every 90 seconds (90,000 milliseconds)
-        for (let t = 0; t < renderLengthSeconds; t += 90) {
-            const startTimeMs = t * 1000;
-            
-            // Trigger the voice (and the 5s delay you built into the patch)
-            renderDevice.scheduleEvent(new RNBO.ParameterEvent(startTimeMs, mixParam.index, 1));
-            
-            // We reset the parameter briefly before the next trigger to ensure the [sel 0 1] in Max "sees" the next 1
-            if (t + 85 < renderLengthSeconds) {
-                renderDevice.scheduleEvent(new RNBO.ParameterEvent((t + 85) * 1000, mixParam.index, 0));
-            }
-        }
-
-        // 5. THE BIG CRUNCH (Rendering)
-        exportStatus.innerText = "Rendering 10-minute soundscape...";
-        const startTime = performance.now();
-
-        const renderedBuffer = await offlineContext.startRendering();
-        
-        const endTime = performance.now();
-        console.log(`Render complete in ${((endTime - startTime)/1000).toFixed(2)} seconds.`);
-
-        // 6. CONVERT TO WAV & DOWNLOAD
-        exportStatus.innerText = "Encoding WAV...";
-        const wavBlob = bufferToWav(renderedBuffer);
-        const url = URL.createObjectURL(wavBlob);
-        
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = `mayu_render_${Date.now()}.wav`;
-        anchor.click();
-        
-        exportStatus.innerText = "Download Complete!";
-    };
 });
