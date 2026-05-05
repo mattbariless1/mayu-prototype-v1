@@ -1,6 +1,6 @@
 /**
- * MAYU PROTOTYPE V1 - PRODUCTION ENGINE (RECONCILED)
- * Reconciled to fix RNBO constructor issues and ensure robust offline rendering.
+ * MAYU PROTOTYPE V1 - PRODUCTION ENGINE (FINAL RECONCILED)
+ * Includes: Supabase CRUD, RNBO Real-time Mix, and 10-Min Offline Renderer.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -61,8 +61,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Unified Helper to load audio into RNBO buffers
-     * Fixed: uses arrayBuffer() correctly
+     * Unified Helper to load audio into RNBO buffers.
+     * Uses arrayBuffer() correctly to avoid TypeError.
      */
     async function loadAudioIntoBuffer(url, bufferId, device, context) {
         const response = await fetch(url);
@@ -136,48 +136,61 @@ document.addEventListener('DOMContentLoaded', () => {
             const lengthSamples = renderLengthSeconds * sampleRate;
             const offlineContext = new OfflineAudioContext(2, lengthSamples, sampleRate);
 
-            // 2. Instantiate a fresh Render Device for this context
+            // 2. Instantiate a fresh Render Device
             const response = await fetch('mayu-prototype-v1.export.json');
             const patcher = await response.json();
             const renderDevice = await RNBO.createDevice({ context: offlineContext, patcher });
             renderDevice.node.connect(offlineContext.destination);
 
-            // 3. Load Assets into the Render Device
+            // 3. Load Assets
             exportStatus.innerText = "Loading assets into memory...";
             const ambientId = `ambient_trk_${document.getElementById('ambientSelect').value}`;
             
             await loadAudioIntoBuffer(`media/${ambientId}.wav`, ambientId, renderDevice, offlineContext);
             await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk', renderDevice, offlineContext);
 
-            // 4. SCHEDULING (Native Web Audio Method)
-            // We bypass the RNBO Event constructors and talk directly to the AudioParams.
-            const mixParam = renderDevice.parametersById.get("mix_state");
-            const ambientParam = renderDevice.parametersById.get("which_ambient");
+            // 4. ROBUST SCHEDULING
+            // We find the parameters and access their internal AudioParam for native scheduling
+            const getAudioParam = (id) => {
+                const p = renderDevice.parametersById.get(id);
+                // Try .audioParam (Standard) or fall back to .value if for some reason native is hidden
+                return p ? p.audioParam : null;
+            };
 
-            // Access the underlying native browser AudioParam
-            const mixAudioParam = mixParam.audioParam;
-            const ambientAudioParam = ambientParam.audioParam;
+            const mixAudioParam = getAudioParam("mix_state");
+            const ambientAudioParam = getAudioParam("which_ambient");
 
-            if (mixAudioParam && ambientAudioParam) {
-                // Initial Ambient Selection (0s)
-                ambientAudioParam.setValueAtTime(parseFloat(document.getElementById('ambientSelect').value), 0);
-
-                // 90-Second Trigger Loop (Time in Seconds)
-                for (let t = 0; t < renderLengthSeconds; t += 90) {
-                    // Trigger the Voice/Ducking sequence
-                    mixAudioParam.setValueAtTime(1, t);
-                    
-                    // Reset the trigger 5s before the next loop to ensure the pulse is captured
-                    if (t + 85 < renderLengthSeconds) {
-                        mixAudioParam.setValueAtTime(0, t + 85);
-                    }
+            if (!mixAudioParam || !ambientAudioParam) {
+                // If the direct ID fails, search the entire parameter list
+                const findParam = (id) => renderDevice.parameters.find(p => p.id === id || p.name === id);
+                const pMix = findParam("mix_state");
+                const pAmb = findParam("which_ambient");
+                
+                if (pMix && pAmb && pMix.audioParam && pAmb.audioParam) {
+                    console.log("Found params via search fallback.");
+                    // Assign to our local variables
+                    var localMixParam = pMix.audioParam;
+                    var localAmbParam = pAmb.audioParam;
+                } else {
+                    throw new Error("Critical Error: RNBO parameters 'mix_state' or 'which_ambient' not found in patch.");
                 }
             } else {
-                throw new Error("Could not access native AudioParams for scheduling.");
+                var localMixParam = mixAudioParam;
+                var localAmbParam = ambientAudioParam;
+            }
+
+            // Perform native Web Audio scheduling (Uses SECONDS)
+            localAmbParam.setValueAtTime(parseFloat(document.getElementById('ambientSelect').value), 0);
+
+            for (let t = 0; t < renderLengthSeconds; t += 90) {
+                localMixParam.setValueAtTime(1, t);
+                if (t + 85 < renderLengthSeconds) {
+                    localMixParam.setValueAtTime(0, t + 85);
+                }
             }
 
             // 5. THE BIG CRUNCH
-            exportStatus.innerText = "Rendering 10-minute soundscape... (This takes ~10s)";
+            exportStatus.innerText = "Rendering 10-minute soundscape...";
             const startTime = performance.now();
 
             const renderedBuffer = await offlineContext.startRendering();
@@ -185,7 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const endTime = performance.now();
             console.log(`Render complete in ${((endTime - startTime)/1000).toFixed(2)} seconds.`);
 
-            // 6. ENCODE WAV & TRIGGER DOWNLOAD
+            // 6. ENCODE WAV & DOWNLOAD
             exportStatus.innerText = "Encoding WAV...";
             const wavBlob = bufferToWav(renderedBuffer);
             const url = URL.createObjectURL(wavBlob);
@@ -236,7 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
-    // 6. RECORDING & SUPABASE (The "Why": Persistence)
+    // 6. RECORDING & SUPABASE
     // ==========================================
 
     recordBtn.onclick = async () => {
