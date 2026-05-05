@@ -1,6 +1,6 @@
 /**
- * MAYU PROTOTYPE V1 - PRODUCTION ENGINE (FINAL RECONCILED)
- * Uses native OfflineAudioContext suspend/resume scheduling to bypass RNBO constructor bugs.
+ * MAYU PROTOTYPE V1 - PRODUCTION ENGINE (FINAL)
+ * Continuous ambient looping, 90s voice intervals, and Suspend/Resume Offline Routing.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -153,29 +153,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const pMix = findParam(renderDevice, "mix_state");
             const pAmb = findParam(renderDevice, "which_ambient");
+            const pPulse = findParam(renderDevice, "offline_voice_pulse"); // New dedicated trigger
 
-            if (!pMix || !pAmb) throw new Error("Parameters not found.");
+            if (!pMix || !pAmb || !pPulse) throw new Error("Parameters not found in RNBO patch.");
 
             // 4. ROBUST SUSPEND/RESUME SCHEDULING
-            // Set initial state for time 0
+            
+            // Time 0 Initialization: 
+            // - Load correct ambient track.
+            // - Turn the whole patch ON (ambient starts looping).
+            // - Send the FIRST voice trigger (pulse = 1), which plays after your internal 5s delay.
             pAmb.value = parseFloat(document.getElementById('ambientSelect').value);
             pMix.value = 1; 
+            pPulse.value = 1; 
 
-            // Schedule all future state changes by pausing the render, changing the value, and resuming
-            for (let t = 0; t < renderLengthSeconds; t += 90) {
-                const timeOff = t + 85; // 85 seconds
-                const timeOn = t + 90;  // 90 seconds
+            // Schedule the repeating Voice pulses (starting at the 90s mark)
+            for (let t = 90; t < renderLengthSeconds; t += 90) {
+                
+                const timeOff = t - 5; // 85s, 175s, 265s...
+                const timeOn = t;      // 90s, 180s, 270s...
 
                 if (timeOff < renderLengthSeconds) {
                     offlineContext.suspend(timeOff).then(() => {
-                        pMix.value = 0;
+                        pPulse.value = 0; // Silently resets the voice track
                         offlineContext.resume();
                     });
                 }
                 
                 if (timeOn < renderLengthSeconds) {
                     offlineContext.suspend(timeOn).then(() => {
-                        pMix.value = 1;
+                        pPulse.value = 1; // Sends 'bang' to play the voice track again
                         offlineContext.resume();
                     });
                 }
