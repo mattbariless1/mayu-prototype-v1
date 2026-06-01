@@ -27,6 +27,15 @@
         </header>
 
         <div class="mix-engine-panel">
+            <p class="status-text" style="margin-top: 0; margin-bottom: 10px; font-weight: bold; color: var(--text-color);">Activate Real-Time Engine</p>
+            
+            <label class="switch large" title="Activate Real-Time Soundscape" style="margin-bottom: 25px;">
+                <input type="checkbox" id="mixToggle">
+                <span class="slider"></span>
+            </label>
+
+            <hr style="border: none; border-top: 1px solid rgba(0,0,0,0.1); margin-bottom: 20px;">
+
             <button id="recordBtn" class="btn-pill">Record Voice</button>
             <div id="status" class="status-text">Ready</div>
         </div>
@@ -38,17 +47,11 @@
         </div>
 
         <div class="mix-engine-panel">
-            <p class="status-text" style="margin-top: 0; margin-bottom: 15px;">Real-Time Playback</p>
+            <p class="status-text" style="margin-top: 0; margin-bottom: 15px;">Audition Voice Selection</p>
             
             <div class="utility-panel">
                 <button id="playBtn" class="btn-pill" style="margin: 0;">Audition</button>
-                
-                <label class="switch large" title="Play Continuous Soundscape">
-                    <input type="checkbox" id="mixToggle">
-                    <span class="slider"></span>
-                </label>
-
-                <button id="stopBtn" class="btn-icon-stop" title="Stop Soundscape">■</button>
+                <button id="stopBtn" class="btn-icon-stop" title="Stop Audio">■</button>
             </div>
         </div>
 
