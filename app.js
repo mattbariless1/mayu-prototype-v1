@@ -103,12 +103,15 @@ document.addEventListener('DOMContentLoaded', () => {
             this.ambPool = [];
 
             while (t < durationSeconds) {
+                // 1. MUSIC (Inst)
                 let iIdx = this.getNext('inst');
                 let iLen = durations.inst[iIdx];
                 this.timeline.push({ time: t, param: 'inst_index', val: iIdx });
                 this.timeline.push({ time: t, param: 'play_inst', val: 1 });
-                this.timeline.push({ time: t + 0.1, param: 'play_inst', val: 0 });
+                // FIX: Send the stop message ONLY when the instrument file finishes
+                this.timeline.push({ time: t + iLen, param: 'play_inst', val: 0 });
 
+                // 2. ATMOSPHERE (Starts 12 seconds before Music ends)
                 let ambStart = t + iLen - 12;
                 if (ambStart < t) ambStart = t + iLen;
 
@@ -116,13 +119,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 let aLen = durations.amb[aIdx];
                 this.timeline.push({ time: ambStart, param: 'amb_index', val: aIdx });
                 this.timeline.push({ time: ambStart, param: 'play_amb', val: 1 });
-                this.timeline.push({ time: ambStart + 0.1, param: 'play_amb', val: 0 });
+                // FIX: Send the stop message ONLY when the atmosphere file finishes
+                this.timeline.push({ time: ambStart + aLen, param: 'play_amb', val: 0 });
 
+                // 3. VOICE (Starts immediately after Atmosphere ends)
                 let voiceStart = ambStart + aLen;
                 let vLen = durations.voice;
                 this.timeline.push({ time: voiceStart, param: 'play_voice', val: 1 });
-                this.timeline.push({ time: voiceStart + 0.1, param: 'play_voice', val: 0 });
+                // FIX: Send the stop message ONLY when the voice file finishes
+                this.timeline.push({ time: voiceStart + vLen, param: 'play_voice', val: 0 });
 
+                // Loop restarts after Voice ends
                 t = voiceStart + vLen;
             }
             this.timeline.sort((a, b) => a.time - b.time);
