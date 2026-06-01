@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedFileUrl = null;
     let mediaRecorder;
     let audioChunks = [];
+    const audioPlayer = new Audio(); // <-- ADD THIS LINE
     
     // Dictionaries to hold durations of our loaded files (0, 1, 2)
     const durations = { inst: {}, amb: {}, voice: 0 };
