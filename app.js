@@ -102,7 +102,6 @@ document.addEventListener('DOMContentLoaded', () => {
             let currentTime = 0;
             let isInstTurn = true;
             
-            // FIX 1: Track active playing files to prevent premature cutoffs
             let instEndTime = 0;
             let ambEndTime = 0;
 
@@ -111,7 +110,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     let iIdx = this.getNext('inst');
                     let iLen = durations.inst[iIdx];
                     
-                    // Prevent the new instrument from overriding and cutting off the current one
                     if (currentTime < instEndTime) currentTime = instEndTime;
                     
                     this.timeline.push({ time: currentTime, param: 'inst_index', val: iIdx });
@@ -119,15 +117,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.timeline.push({ time: currentTime + iLen, param: 'play_inst', val: 0 });
                     
                     instEndTime = currentTime + iLen;
-                    
-                    // Atmosphere starts 40 seconds before this instrument ends
                     currentTime = instEndTime - 40;
                     isInstTurn = false;
                 } else {
                     let aIdx = this.getNext('amb');
                     let aLen = durations.amb[aIdx];
                     
-                    // Prevent the new atmosphere from overriding and cutting off the current one
                     if (currentTime < ambEndTime) currentTime = ambEndTime;
                     
                     this.timeline.push({ time: currentTime, param: 'amb_index', val: aIdx });
@@ -135,8 +130,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.timeline.push({ time: currentTime + aLen, param: 'play_amb', val: 0 });
                     
                     ambEndTime = currentTime + aLen;
-                    
-                    // Instrument starts 40 seconds before this atmosphere ends
                     currentTime = ambEndTime - 40;
                     isInstTurn = true;
                 }
@@ -158,8 +151,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             this.timeline.sort((a, b) => a.time - b.time);
             
-            // FIX 2: Shift any pure 0.00s events to 0.05s so the AudioContext 
-            // has time to boot up and catch the message queue.
             this.timeline.forEach(ev => {
                 if (ev.time <= 0) ev.time = 0.05;
             });
@@ -277,25 +268,18 @@ document.addEventListener('DOMContentLoaded', () => {
             exportStatus.innerText = "Calculating sequence...";
             engine.buildTimeline(renderLengthSeconds);
 
-            const timeMap = {};
+            // FIX: Use RNBO's native sample-accurate event scheduler instead of OfflineAudioContext.suspend()
+            // This injects all parameters directly into the audio thread BEFORE rendering starts,
+            // entirely eliminating the main-thread message queue latency.
             engine.timeline.forEach(ev => {
                 if (ev.time >= renderLengthSeconds) return;
-                if (!timeMap[ev.time]) timeMap[ev.time] = [];
-                timeMap[ev.time].push(ev);
+                const p = renderDevice.parameters.find(param => param.id.includes(ev.param));
+                if (p) {
+                    let timeMs = ev.time * 1000; // RNBO expects time in milliseconds
+                    let paramEvent = new RNBO.ParameterEvent(timeMs, p.index, ev.val);
+                    renderDevice.scheduleEvent(paramEvent);
+                }
             });
-
-            const uniqueTimes = Object.keys(timeMap).map(Number).sort((a,b) => a - b);
-
-            for (let t of uniqueTimes) {
-                // Return to clean suspend architecture now that 0.00s is shifted to 0.05s
-                offlineContext.suspend(t).then(() => {
-                    timeMap[t].forEach(ev => {
-                        const p = renderDevice.parameters.find(param => param.id.includes(ev.param));
-                        if (p) p.value = ev.val;
-                    });
-                    offlineContext.resume();
-                });
-            }
 
             exportStatus.innerText = "Rendering 10-minute soundscape... (Takes ~10s)";
             const renderedBuffer = await offlineContext.startRendering();
