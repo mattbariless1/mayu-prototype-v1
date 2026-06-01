@@ -46,14 +46,14 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("Loading multibuffer assets...");
         
         // Load Music (Inst) files into multibuffer~ mayu-inst (Indices 0, 1, 2)
-        await loadAudio(`media/inst_0.wav`, `mayu-inst.0`, rnboDevice, audioContext, 'inst', 0);
-        await loadAudio(`media/inst_1.wav`, `mayu-inst.1`, rnboDevice, audioContext, 'inst', 1);
-        await loadAudio(`media/inst_2.wav`, `mayu-inst.2`, rnboDevice, audioContext, 'inst', 2);
+        await loadAudio(`media/mayu-inst-1.wav`, `mayu-inst.0`, rnboDevice, audioContext, 'inst', 0);
+        await loadAudio(`media/mayu-inst-2.wav`, `mayu-inst.1`, rnboDevice, audioContext, 'inst', 1);
+        await loadAudio(`media/mayu-inst-3.wav`, `mayu-inst.2`, rnboDevice, audioContext, 'inst', 2);
 
         // Load Atmosphere (Amb) files into multibuffer~ mayu-amb (Indices 0, 1, 2)
-        await loadAudio(`media/amb_0.wav`, `mayu-amb.0`, rnboDevice, audioContext, 'amb', 0);
-        await loadAudio(`media/amb_1.wav`, `mayu-amb.1`, rnboDevice, audioContext, 'amb', 1);
-        await loadAudio(`media/amb_2.wav`, `mayu-amb.2`, rnboDevice, audioContext, 'amb', 2);
+        await loadAudio(`media/mayu-amb-1.wav`, `mayu-amb.0`, rnboDevice, audioContext, 'amb', 0);
+        await loadAudio(`media/mayu-amb-2.wav`, `mayu-amb.1`, rnboDevice, audioContext, 'amb', 1);
+        await loadAudio(`media/mayu-amb-3.wav`, `mayu-amb.2`, rnboDevice, audioContext, 'amb', 2);
 
         console.log("Assets loaded. Exact Durations:", durations);
     }
