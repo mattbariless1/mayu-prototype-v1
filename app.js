@@ -268,18 +268,31 @@ document.addEventListener('DOMContentLoaded', () => {
             exportStatus.innerText = "Calculating sequence...";
             engine.buildTimeline(renderLengthSeconds);
 
-            // FIX: Use RNBO's native sample-accurate event scheduler instead of OfflineAudioContext.suspend()
-            // This injects all parameters directly into the audio thread BEFORE rendering starts,
-            // entirely eliminating the main-thread message queue latency.
+            const timeMap = {};
             engine.timeline.forEach(ev => {
                 if (ev.time >= renderLengthSeconds) return;
-                const p = renderDevice.parameters.find(param => param.id.includes(ev.param));
-                if (p) {
-                    let timeMs = ev.time * 1000; // RNBO expects time in milliseconds
-                    let paramEvent = new RNBO.ParameterEvent(timeMs, p.index, ev.val);
-                    renderDevice.scheduleEvent(paramEvent);
-                }
+                if (!timeMap[ev.time]) timeMap[ev.time] = [];
+                timeMap[ev.time].push(ev);
             });
+
+            const uniqueTimes = Object.keys(timeMap).map(Number).sort((a,b) => a - b);
+
+            for (let t of uniqueTimes) {
+                offlineContext.suspend(t).then(() => {
+                    // 1. Send the parameters to the audio worklet
+                    timeMap[t].forEach(ev => {
+                        const p = renderDevice.parameters.find(param => param.id.includes(ev.param));
+                        if (p) p.value = ev.val;
+                    });
+                    
+                    // 2. THE MESSAGE QUEUE FLUSH
+                    // Yield control for 15ms so the browser actually delivers the 
+                    // parameters to the audio engine before we start rendering again.
+                    setTimeout(() => {
+                        offlineContext.resume();
+                    }, 15);
+                });
+            }
 
             exportStatus.innerText = "Rendering 10-minute soundscape... (Takes ~10s)";
             const renderedBuffer = await offlineContext.startRendering();
