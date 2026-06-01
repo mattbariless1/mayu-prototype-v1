@@ -6,21 +6,23 @@
 
 body {
     margin: 0;
-    padding: 0;
+    padding: 40px 0;
     font-family: 'Inter', sans-serif;
     background: var(--bg-gradient);
     color: var(--text-color);
     min-height: 100vh;
     display: flex;
+    flex-direction: column; /* Ensures vertical stacking if content grows */
     justify-content: center;
     align-items: center;
 }
 
 .container {
     width: 100%;
-    max-width: 400px;
+    max-width: 420px;
     text-align: center;
     padding: 20px;
+    margin: auto;
 }
 
 header h1 {
@@ -35,7 +37,7 @@ header h1 {
     font-family: 'Playfair Display', serif;
     font-style: italic;
     opacity: 0.7;
-    margin-bottom: 50px;
+    margin-bottom: 40px;
 }
 
 /* The concentric circles icon from your mockup */
@@ -44,6 +46,7 @@ header h1 {
     justify-content: center;
     align-items: center;
     height: 80px;
+    position: relative;
 }
 
 .circle {
@@ -59,7 +62,7 @@ header h1 {
 .btn-pill {
     background: rgba(255, 255, 255, 0.4);
     border: 1px solid #e0e0e0;
-    padding: 15px 60px;
+    padding: 15px 40px;
     border-radius: 40px;
     font-family: 'Inter', sans-serif;
     font-size: 0.9rem;
@@ -67,6 +70,7 @@ header h1 {
     cursor: pointer;
     transition: all 0.3s ease;
     margin: 10px 0;
+    width: 100%;
 }
 
 .btn-pill:hover {
@@ -81,8 +85,19 @@ header h1 {
 }
 
 .repository {
-    margin-top: 40px;
+    margin-top: 20px;
+    margin-bottom: 20px;
     text-align: left;
+}
+
+/* Added container for the Supabase list */
+.recordings-container {
+    background: rgba(255, 255, 255, 0.3);
+    border: 1px solid rgba(0,0,0,0.05);
+    border-radius: 15px;
+    padding: 10px;
+    max-height: 200px;
+    overflow-y: auto;
 }
 
 .recording-item {
@@ -92,8 +107,16 @@ header h1 {
     border-bottom: 1px solid rgba(0,0,0,0.05);
 }
 
+.recording-item:last-child {
+    border-bottom: none;
+}
+
 .recording-item input {
     margin-right: 15px;
+}
+
+.rec-label {
+    font-size: 0.9rem;
 }
 
 .item-actions {
@@ -116,7 +139,7 @@ header h1 {
 
 /* Layout Separation */
 .mix-engine-panel {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.2);
     padding: 20px;
     border-radius: 15px;
     margin-bottom: 20px;
@@ -133,8 +156,8 @@ header h1 {
 .switch.large {
   position: relative;
   display: inline-block;
-  width: 76px; /* Increased width */
-  height: 38px; /* Increased height */
+  width: 76px;
+  height: 38px;
 }
 .switch.large input { opacity: 0; width: 0; height: 0; }
 
@@ -142,7 +165,7 @@ header h1 {
   position: absolute;
   cursor: pointer;
   top: 0; left: 0; right: 0; bottom: 0;
-  background-color: rgba(255,255,255,0.2);
+  background-color: rgba(255,255,255,0.4);
   transition: .4s;
   border-radius: 38px;
 }
@@ -150,27 +173,27 @@ header h1 {
 .switch.large .slider:before {
   position: absolute;
   content: "";
-  height: 30px; /* Larger circle */
-  width: 30px; /* Larger circle */
+  height: 30px;
+  width: 30px;
   left: 4px; 
   bottom: 4px;
   background-color: white;
   transition: .4s;
   border-radius: 50%;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
-.switch.large input:checked + .slider { background-color: #7d8cc4; }
+.switch.large input:checked + .slider { background-color: #d1b8b0; }
 .switch.large input:checked + .slider:before { transform: translateX(38px); }
 
 /* STOP BUTTON ICON */
 .btn-icon-stop {
-    background: #333;
-    color: white;
+    background: rgba(0,0,0,0.1);
+    color: var(--text-color);
     border: none;
     width: 42px;
     height: 42px;
-    border-radius: 8px;
+    border-radius: 12px;
     font-size: 1.2rem;
     cursor: pointer;
     display: flex;
@@ -178,4 +201,4 @@ header h1 {
     justify-content: center;
     transition: background 0.2s;
 }
-.btn-icon-stop:hover { background: #444; }
+.btn-icon-stop:hover { background: rgba(0,0,0,0.2); }

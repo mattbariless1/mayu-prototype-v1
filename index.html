@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mayu Prototype V2</title>
+    <title>Mayu Prototype</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Playfair+Display:ital@1&display=swap" rel="stylesheet">
     
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
@@ -11,54 +13,50 @@
 </head>
 <body>
 
-    <header>
-        <h1>Mayu Prototype V2</h1>
-        <p>Dynamic Timeline Engine</p>
-    </header>
-
-    <section class="panel">
-        <h2>1. Record Voice</h2>
-        <div class="control-group">
-            <button id="recordBtn" class="btn">Record</button>
-            <span id="status" class="status-text">Ready</span>
-        </div>
-    </section>
-
-    <section class="panel">
-        <h2>2. Voice Recordings</h2>
-        <p class="helper-text">Select a recording to use in the soundscape.</p>
+    <div class="container">
         
-        <div id="recordingsList" class="recordings-container">
-            Loading recordings...
-        </div>
-    </section>
+        <header>
+            <div class="logo-icon">
+                <div class="circle outer"></div>
+                <div class="circle mid"></div>
+                <div class="circle inner"></div>
+            </div>
+            <h1>MAYU</h1>
+            <p class="tagline">Dynamic Timeline Engine</p>
+        </header>
 
-    <section class="panel">
-        <h2>3. Real-Time Playback</h2>
-        
-        <div class="control-group">
-            <button id="playBtn" class="btn">Audition Voice</button>
-            <button id="stopBtn" class="btn stop">Stop Audition / Soundscape</button>
+        <div class="mix-engine-panel">
+            <button id="recordBtn" class="btn-pill">Record Voice</button>
+            <div id="status" class="status-text">Ready</div>
         </div>
 
-        <hr>
-
-        <div class="control-group toggle-container">
-            <label for="mixToggle" class="toggle-label">
-                <input type="checkbox" id="mixToggle" class="toggle-checkbox">
-                <strong>Play Continuous Soundscape</strong>
-            </label>
-            <p class="helper-text">Starts the dynamic timeline weaving Music, Atmosphere, and Voice.</p>
+        <div class="repository">
+            <div id="recordingsList" class="recordings-container">
+                Loading recordings...
+            </div>
         </div>
-    </section>
 
-    <section class="panel">
-        <h2>4. Export 10-Minute File</h2>
-        <div class="control-group">
-            <button id="exportWavBtn" class="btn primary">Export 10-Min Soundscape</button>
-            <span id="exportStatus" class="status-text"></span>
+        <div class="mix-engine-panel">
+            <p class="status-text" style="margin-top: 0; margin-bottom: 15px;">Real-Time Playback</p>
+            
+            <div class="utility-panel">
+                <button id="playBtn" class="btn-pill" style="margin: 0;">Audition</button>
+                
+                <label class="switch large" title="Play Continuous Soundscape">
+                    <input type="checkbox" id="mixToggle">
+                    <span class="slider"></span>
+                </label>
+
+                <button id="stopBtn" class="btn-icon-stop" title="Stop Soundscape">■</button>
+            </div>
         </div>
-    </section>
+
+        <div class="mix-engine-panel">
+            <button id="exportWavBtn" class="btn-pill">Export 10-Min Soundscape</button>
+            <div id="exportStatus" class="status-text"></div>
+        </div>
+
+    </div>
 
     <script src="app.js"></script>
 
