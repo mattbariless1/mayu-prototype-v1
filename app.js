@@ -332,11 +332,22 @@ document.addEventListener('DOMContentLoaded', () => {
         function setUint16(data) { view.setUint16(pos, data, true); pos += 2; }
         function setUint32(data) { view.setUint32(pos, data, true); pos += 4; }
 
-        setUint32(0x46464952); setUint32(length - 8); setUint32(0x45564157);
-        setUint32(0x20746d66); setUint16(16); setUint16(1); setUint16(numOfChan);
-        setUint32(abuffer.sampleRate); setUint32(abuffer.sampleRate * 2 * numOfChan);
-        setUint16(numOfChan * 2); setUint16(16); setUint32(0x61746164); setUint32(length - pos - 4);
+        setUint32(0x46464952); // "RIFF"
+        setUint32(length - 8); 
+        setUint32(0x45564157); // "WAVE"
+        setUint32(0x20746d66); // "fmt "
+        setUint32(16);         // length of fmt chunk (FIXED: was setUint16)
+        setUint16(1);          // PCM format
+        setUint16(numOfChan);
+        setUint32(abuffer.sampleRate);
+        setUint32(abuffer.sampleRate * 2 * numOfChan);
+        setUint16(numOfChan * 2);
+        setUint16(16);         // 16-bit
+        setUint32(0x61746164); // "data"
+        setUint32(length - pos - 4); // data chunk length
+
         for(i = 0; i < abuffer.numberOfChannels; i++) channels.push(abuffer.getChannelData(i));
+        
         while(pos < length) {
             for(i = 0; i < numOfChan; i++) {
                 sample = Math.max(-1, Math.min(1, channels[i][offset]));
