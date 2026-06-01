@@ -46,14 +46,14 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("Loading multibuffer assets...");
         
         // Load Music (Inst) files into multibuffer~ mayu-inst (Indices 0, 1, 2)
-        await loadAudio(`media/mayu-inst-1.wav`, `mayu-inst.0`, rnboDevice, audioContext, 'inst', 0);
-        await loadAudio(`media/mayu-inst-2.wav`, `mayu-inst.1`, rnboDevice, audioContext, 'inst', 1);
-        await loadAudio(`media/mayu-inst-3.wav`, `mayu-inst.2`, rnboDevice, audioContext, 'inst', 2);
+        await loadAudio(`media/mayu-inst-1.wav`, `inst1`, rnboDevice, audioContext, 'inst', 0);
+        await loadAudio(`media/mayu-inst-2.wav`, `inst2`, rnboDevice, audioContext, 'inst', 1);
+        await loadAudio(`media/mayu-inst-3.wav`, `inst3`, rnboDevice, audioContext, 'inst', 2);
 
         // Load Atmosphere (Amb) files into multibuffer~ mayu-amb (Indices 0, 1, 2)
-        await loadAudio(`media/mayu-amb-1.wav`, `mayu-amb.0`, rnboDevice, audioContext, 'amb', 0);
-        await loadAudio(`media/mayu-amb-2.wav`, `mayu-amb.1`, rnboDevice, audioContext, 'amb', 1);
-        await loadAudio(`media/mayu-amb-3.wav`, `mayu-amb.2`, rnboDevice, audioContext, 'amb', 2);
+        await loadAudio(`media/mayu-amb-1.wav`, `amb1`, rnboDevice, audioContext, 'amb', 0);
+        await loadAudio(`media/mayu-amb-2.wav`, `amb2`, rnboDevice, audioContext, 'amb', 1);
+        await loadAudio(`media/mayu-amb-3.wav`, `amb3`, rnboDevice, audioContext, 'amb', 2);
 
         console.log("Assets loaded. Exact Durations:", durations);
     }
@@ -229,10 +229,18 @@ document.addEventListener('DOMContentLoaded', () => {
             renderDevice.node.connect(offlineContext.destination);
 
             exportStatus.innerText = "Loading assets for rendering...";
-            for (let i = 0; i <= 2; i++) {
-                await loadAudio(`media/inst_${i}.wav`, `mayu-inst.${i}`, renderDevice, offlineContext, 'inst', i);
-                await loadAudio(`media/amb_${i}.wav`, `mayu-amb.${i}`, renderDevice, offlineContext, 'amb', i);
-            }
+        
+             // Music (Inst) files for offline render
+            await loadAudio(`media/mayu-inst-1.wav`, `inst1`, renderDevice, offlineContext, 'inst', 0);
+            await loadAudio(`media/mayu-inst-2.wav`, `inst2`, renderDevice, offlineContext, 'inst', 1);
+            await loadAudio(`media/mayu-inst-3.wav`, `inst3`, renderDevice, offlineContext, 'inst', 2);
+
+            // Atmosphere (Amb) files for offline render
+            await loadAudio(`media/mayu-amb-1.wav`, `amb1`, renderDevice, offlineContext, 'amb', 0);
+            await loadAudio(`media/mayu-amb-2.wav`, `amb2`, renderDevice, offlineContext, 'amb', 1);
+            await loadAudio(`media/mayu-amb-3.wav`, `amb3`, renderDevice, offlineContext, 'amb', 2);
+        
+            // Voice file for offline render
             await loadAudio(selectedFileUrl, 'voice_trk', renderDevice, offlineContext, 'voice', 0);
 
             exportStatus.innerText = "Calculating sequence...";
