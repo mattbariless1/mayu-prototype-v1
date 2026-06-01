@@ -1,10 +1,26 @@
 [
   {
-    "id": "ambient_trk_2",
-    "file": "media/ambient_trk_2.wav"
+    "id": "inst1",
+    "file": "media/mayu-inst-1.wav"
   },
   {
-    "id": "ambient_trk_1",
-    "file": "media/ambient_trk_1.wav"
+    "id": "inst2",
+    "file": "media/mayu-inst-2.wav"
+  },
+  {
+    "id": "inst3",
+    "file": "media/mayu-inst-3.wav"
+  },
+  {
+    "id": "amb1",
+    "file": "media/mayu-amb-1.wav"
+  },
+  {
+    "id": "amb2",
+    "file": "media/mayu-amb-2.wav"
+  },
+  {
+    "id": "amb3",
+    "file": "media/mayu-amb-3.wav"
   }
 ]

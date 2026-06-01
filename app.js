@@ -1,6 +1,6 @@
 /**
- * MAYU PROTOTYPE V1 - PRODUCTION ENGINE (FINAL)
- * Continuous ambient looping, 90s voice intervals, and Suspend/Resume Offline Routing.
+ * MAYU PROTOTYPE V1.1 - DYNAMIC TIMELINE ENGINE (0-Based Index)
+ * Uses RNBO multibuffer~, 12s overlapping sequence, and mathematical fade outs.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -11,85 +11,144 @@ document.addEventListener('DOMContentLoaded', () => {
     const mayuDb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     // --- 2. GLOBAL STATE ---
+    let rnboDevice, audioContext;
+    let selectedFileUrl = null;
     let mediaRecorder;
     let audioChunks = [];
-    let audioPlayer = new Audio(); 
-    let selectedFileUrl = null;
-    let rnboDevice;
-    let audioContext;
-
-    // UI Element Selections
-    const status = document.getElementById('status');
+    
+    // Dictionaries to hold durations of our loaded files (0, 1, 2)
+    const durations = { inst: {}, amb: {}, voice: 0 };
+    
+    // UI Elements
     const recordBtn = document.getElementById('recordBtn');
     const mixToggle = document.getElementById('mixToggle');
-    const playBtn = document.getElementById('playBtn'); // Audition
-    const stopBtn = document.getElementById('stopBtn'); // ■
+    const playBtn = document.getElementById('playBtn'); 
+    const stopBtn = document.getElementById('stopBtn'); 
     const exportBtn = document.getElementById('exportWavBtn');
     const exportStatus = document.getElementById('exportStatus');
+    const status = document.getElementById('status');
     const listContainer = document.getElementById('recordingsList');
 
     // ==========================================
-    // 3. RNBO ENGINE (Real-time Playback)
+    // 3. RNBO ENGINE SETUP
     // ==========================================
 
     async function setupRNBO() {
-        try {
-            const WAContext = window.AudioContext || window.webkitAudioContext;
-            audioContext = new WAContext();
+        const WAContext = window.AudioContext || window.webkitAudioContext;
+        audioContext = new WAContext();
 
-            const response = await fetch('mayu-prototype-v1.export.json');
-            const patcher = await response.json();
+        const response = await fetch('mayu-prototype-v1.1.export.json');
+        const patcher = await response.json();
+        rnboDevice = await RNBO.createDevice({ context: audioContext, patcher });
+        rnboDevice.node.connect(audioContext.destination);
 
-            rnboDevice = await RNBO.createDevice({ context: audioContext, patcher });
-            rnboDevice.node.connect(audioContext.destination);
+        console.log("Loading multibuffer assets...");
+        
+        // Load Music (Inst) files into multibuffer~ mayu-inst (Indices 0, 1, 2)
+        await loadAudio(`media/inst_0.wav`, `mayu-inst.0`, rnboDevice, audioContext, 'inst', 0);
+        await loadAudio(`media/inst_1.wav`, `mayu-inst.1`, rnboDevice, audioContext, 'inst', 1);
+        await loadAudio(`media/inst_2.wav`, `mayu-inst.2`, rnboDevice, audioContext, 'inst', 2);
 
-            console.log("Loading ambient tracks...");
-            const depResponse = await fetch('dependencies.json');
-            const dependencies = await depResponse.json();
+        // Load Atmosphere (Amb) files into multibuffer~ mayu-amb (Indices 0, 1, 2)
+        await loadAudio(`media/amb_0.wav`, `mayu-amb.0`, rnboDevice, audioContext, 'amb', 0);
+        await loadAudio(`media/amb_1.wav`, `mayu-amb.1`, rnboDevice, audioContext, 'amb', 1);
+        await loadAudio(`media/amb_2.wav`, `mayu-amb.2`, rnboDevice, audioContext, 'amb', 2);
 
-            for (const dep of dependencies) {
-                const fileUrl = dep.file.startsWith('media/') ? dep.file : `media/${dep.file}`;
-                await loadAudioIntoBuffer(fileUrl, dep.id, rnboDevice, audioContext);
-            }
-            
-            syncAmbientSelection();
-            setupParamListeners();
-            console.log("DSP Ready");
-        } catch (err) {
-            console.error("RNBO Setup Error:", err);
-        }
+        console.log("Assets loaded. Exact Durations:", durations);
     }
 
-    async function loadAudioIntoBuffer(url, bufferId, device, context) {
-        const response = await fetch(url);
-        const arrayBuffer = await response.arrayBuffer(); 
+    async function loadAudio(url, bufferId, device, context, type, index) {
+        const res = await fetch(url);
+        const arrayBuffer = await res.arrayBuffer(); 
         const audioBuffer = await context.decodeAudioData(arrayBuffer);
+        
+        if (type === 'inst') durations.inst[index] = audioBuffer.duration;
+        if (type === 'amb') durations.amb[index] = audioBuffer.duration;
+        if (type === 'voice') durations.voice = audioBuffer.duration;
+
         await device.setDataBuffer(bufferId, audioBuffer);
     }
 
-    function syncAmbientSelection() {
-        const selector = document.getElementById('ambientSelect');
-        if (selector && rnboDevice) {
-            const param = findParam(rnboDevice, "which_ambient");
-            if (param) param.value = parseFloat(selector.value);
+    // ==========================================
+    // 4. THE TIMELINE GENERATOR
+    // ==========================================
+
+    class PlaybackEngine {
+        constructor() {
+            this.timeline = [];
+            this.instPool = [];
+            this.ambPool = [];
+        }
+
+        shuffle(array) {
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex !== 0) {
+                randomIndex = Math.floor(Math.random() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        }
+
+        getNext(type) {
+            let pool = type === 'inst' ? this.instPool : this.ambPool;
+            if (pool.length === 0) {
+                // Fill with 0, 1, 2 and shuffle
+                pool.push(...this.shuffle([0, 1, 2]));
+            }
+            return pool.shift();
+        }
+
+        buildTimeline(durationSeconds) {
+            this.timeline = [];
+            let t = 0;
+
+            this.instPool = [];
+            this.ambPool = [];
+
+            while (t < durationSeconds) {
+                // 1. MUSIC (Inst)
+                let iIdx = this.getNext('inst');
+                let iLen = durations.inst[iIdx];
+                this.timeline.push({ time: t, param: 'inst_index', val: iIdx });
+                this.timeline.push({ time: t, param: 'play_inst', val: 1 });
+                // We don't send a 0 to stop music immediately; we let it play through, 
+                // but we reset the UI trigger param so it's ready for the next round
+                this.timeline.push({ time: t + 0.1, param: 'play_inst', val: 0 });
+
+                // 2. ATMOSPHERE (Starts 12 seconds before Music ends)
+                let ambStart = t + iLen - 12;
+                if (ambStart < t) ambStart = t + iLen;
+
+                let aIdx = this.getNext('amb');
+                let aLen = durations.amb[aIdx];
+                this.timeline.push({ time: ambStart, param: 'amb_index', val: aIdx });
+                this.timeline.push({ time: ambStart, param: 'play_amb', val: 1 });
+                this.timeline.push({ time: ambStart + 0.1, param: 'play_amb', val: 0 });
+
+                // 3. VOICE (Starts immediately after Atmosphere ends)
+                let voiceStart = ambStart + aLen;
+                let vLen = durations.voice;
+                this.timeline.push({ time: voiceStart, param: 'play_voice', val: 1 });
+                this.timeline.push({ time: voiceStart + 0.1, param: 'play_voice', val: 0 });
+
+                // Loop restarts after Voice ends
+                t = voiceStart + vLen;
+            }
+            this.timeline.sort((a, b) => a.time - b.time);
         }
     }
 
-    function setupParamListeners() {
-        const selector = document.getElementById('ambientSelect');
-        if (selector) selector.onchange = () => syncAmbientSelection();
-    }
-
-    function findParam(device, searchStr) {
-        return device.parameters.find(p => 
-            p.id.toLowerCase().includes(searchStr.toLowerCase()) || 
-            p.name.toLowerCase().includes(searchStr.toLowerCase())
-        );
-    }
+    const engine = new PlaybackEngine();
 
     // ==========================================
-    // 4. INTERFACE LOGIC (Audition & Mix)
+    // 5. REAL-TIME PLAYBACK
     // ==========================================
+    
+    let isPlaying = false;
+    let rAF_ID = null;
+    let playStartTime = 0;
+    let eventIndex = 0;
 
     playBtn.onclick = () => {
         if (!selectedFileUrl) return alert("Please select a recording to audition.");
@@ -99,86 +158,117 @@ document.addEventListener('DOMContentLoaded', () => {
 
     mixToggle.onchange = async (e) => {
         if (!selectedFileUrl) {
-            alert("Please select a recording first.");
+            alert("Please select a voice recording.");
             e.target.checked = false;
             return;
         }
+
         if (!rnboDevice) await setupRNBO();
         if (audioContext.state === 'suspended') await audioContext.resume();
 
-        const mixParam = findParam(rnboDevice, "mix_state");
         if (e.target.checked) {
-            await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk', rnboDevice, audioContext);
-            if (mixParam) mixParam.value = 1;
+            await loadAudio(selectedFileUrl, 'voice_trk', rnboDevice, audioContext, 'voice', 0);
+            
+            engine.buildTimeline(7200); 
+            isPlaying = true;
+            eventIndex = 0;
+            playStartTime = audioContext.currentTime;
+            processRealtime();
         } else {
-            if (mixParam) mixParam.value = 0;
+            isPlaying = false;
+            cancelAnimationFrame(rAF_ID);
+            
+            // Stop all playing tracks when toggled off
+            const pInst = rnboDevice.parameters.find(p => p.id.includes("play_inst"));
+            const pAmb = rnboDevice.parameters.find(p => p.id.includes("play_amb"));
+            const pVoice = rnboDevice.parameters.find(p => p.id.includes("play_voice"));
+            if (pInst) pInst.value = 0;
+            if (pAmb) pAmb.value = 0;
+            if (pVoice) pVoice.value = 0;
         }
     };
+
+    function processRealtime() {
+        if (!isPlaying) return;
+        let now = audioContext.currentTime - playStartTime;
+        
+        while (eventIndex < engine.timeline.length && engine.timeline[eventIndex].time <= now) {
+            let ev = engine.timeline[eventIndex];
+            const p = rnboDevice.parameters.find(param => param.id.includes(ev.param));
+            if (p) p.value = ev.val;
+            eventIndex++;
+        }
+        rAF_ID = requestAnimationFrame(processRealtime);
+    }
 
     stopBtn.onclick = () => {
         audioPlayer.pause();
         audioPlayer.currentTime = 0;
-        if (rnboDevice) {
-            const mixParam = findParam(rnboDevice, "mix_state");
-            if (mixParam) mixParam.value = 0;
-            mixToggle.checked = false; 
+        if (mixToggle.checked) {
+            mixToggle.click(); // Uses the logic above to cleanly stop the RNBO engine
         }
     };
 
     // ==========================================
-    // 5. PRODUCTION RENDER ENGINE (Simplified)
+    // 6. PRODUCTION RENDER ENGINE (With Fade)
     // ==========================================
 
     exportBtn.onclick = async () => {
         if (!selectedFileUrl) return alert("Please select a recording to export.");
-        
-        exportStatus.innerText = "Initializing Render Engine...";
+        exportStatus.innerText = "Initializing Export Engine...";
         
         try {
             const renderLengthSeconds = 600; 
             const sampleRate = 48000;
-            const lengthSamples = renderLengthSeconds * sampleRate;
-            const offlineContext = new OfflineAudioContext(2, lengthSamples, sampleRate);
+            const offlineContext = new OfflineAudioContext(2, renderLengthSeconds * sampleRate, sampleRate);
 
-            const response = await fetch('mayu-prototype-v1.export.json');
+            const response = await fetch('mayu-prototype-v1.1.export.json');
             const patcher = await response.json();
             const renderDevice = await RNBO.createDevice({ context: offlineContext, patcher });
             renderDevice.node.connect(offlineContext.destination);
 
-            exportStatus.innerText = "Loading assets into memory...";
-            const ambientId = `ambient_trk_${document.getElementById('ambientSelect').value}`;
-            
-            await loadAudioIntoBuffer(`media/${ambientId}.wav`, ambientId, renderDevice, offlineContext);
-            await loadAudioIntoBuffer(selectedFileUrl, 'voice_trk', renderDevice, offlineContext);
+            exportStatus.innerText = "Loading assets for rendering...";
+            for (let i = 0; i <= 2; i++) {
+                await loadAudio(`media/inst_${i}.wav`, `mayu-inst.${i}`, renderDevice, offlineContext, 'inst', i);
+                await loadAudio(`media/amb_${i}.wav`, `mayu-amb.${i}`, renderDevice, offlineContext, 'amb', i);
+            }
+            await loadAudio(selectedFileUrl, 'voice_trk', renderDevice, offlineContext, 'voice', 0);
 
-            const pMix = findParam(renderDevice, "mix_state");
-            const pAmb = findParam(renderDevice, "which_ambient");
+            exportStatus.innerText = "Calculating sequence...";
+            engine.buildTimeline(renderLengthSeconds);
 
-            if (!pMix || !pAmb) throw new Error("Parameters not found in RNBO patch.");
+            const timeMap = {};
+            engine.timeline.forEach(ev => {
+                if (ev.time >= renderLengthSeconds) return;
+                if (!timeMap[ev.time]) timeMap[ev.time] = [];
+                timeMap[ev.time].push(ev);
+            });
 
-            // 4. THE MASTER SWITCH
-            // Simply set the ambient track and turn the patch ON. 
-            // Your internal RNBO [metro] and [delay] handle the 10 minutes perfectly!
-            pAmb.value = parseFloat(document.getElementById('ambientSelect').value);
-            pMix.value = 1; 
+            const uniqueTimes = Object.keys(timeMap).map(Number).sort((a,b) => a - b);
 
-            // 5. THE BIG CRUNCH
+            for (let t of uniqueTimes) {
+                offlineContext.suspend(t).then(() => {
+                    timeMap[t].forEach(ev => {
+                        const p = renderDevice.parameters.find(param => param.id.includes(ev.param));
+                        if (p) p.value = ev.val;
+                    });
+                    offlineContext.resume();
+                });
+            }
+
             exportStatus.innerText = "Rendering 10-minute soundscape... (Takes ~10s)";
-            const startTime = performance.now();
-
             const renderedBuffer = await offlineContext.startRendering();
-            
-            const endTime = performance.now();
-            console.log(`Render complete in ${((endTime - startTime)/1000).toFixed(2)} seconds.`);
 
-            // 6. ENCODE & DOWNLOAD
+            exportStatus.innerText = "Applying final fade out...";
+            applyFadeOut(renderedBuffer, 10);
+
             exportStatus.innerText = "Encoding WAV...";
             const wavBlob = bufferToWav(renderedBuffer);
             const url = URL.createObjectURL(wavBlob);
             
             const anchor = document.createElement('a');
             anchor.href = url;
-            anchor.download = `mayu_render_${Date.now()}.wav`;
+            anchor.download = `mayu_soundscape_${Date.now()}.wav`;
             anchor.click();
             
             exportStatus.innerText = "Download Complete!";
@@ -189,14 +279,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    function applyFadeOut(audioBuffer, fadeSeconds) {
+        const sampleRate = audioBuffer.sampleRate;
+        const fadeSamples = fadeSeconds * sampleRate;
+        const length = audioBuffer.length;
+        const startFade = length - fadeSamples;
+
+        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+            const channelData = audioBuffer.getChannelData(channel);
+            for (let i = startFade; i < length; i++) {
+                const multiplier = 1.0 - ((i - startFade) / fadeSamples);
+                channelData[i] *= Math.max(0, multiplier);
+            }
+        }
+    }
+
     function bufferToWav(abuffer) {
         let numOfChan = abuffer.numberOfChannels,
             length = abuffer.length * numOfChan * 2 + 44,
-            buffer = new ArrayBuffer(length),
-            view = new DataView(buffer),
-            channels = [], i, sample,
-            offset = 0, pos = 0;
-
+            buffer = new ArrayBuffer(length), view = new DataView(buffer),
+            channels = [], i, sample, offset = 0, pos = 0;
         function setUint16(data) { view.setUint16(pos, data, true); pos += 2; }
         function setUint32(data) { view.setUint32(pos, data, true); pos += 4; }
 
@@ -204,14 +306,12 @@ document.addEventListener('DOMContentLoaded', () => {
         setUint32(0x20746d66); setUint32(16); setUint16(1); setUint16(numOfChan);
         setUint32(abuffer.sampleRate); setUint32(abuffer.sampleRate * 2 * numOfChan);
         setUint16(numOfChan * 2); setUint16(16); setUint32(0x61746164); setUint32(length - pos - 4);
-
         for(i = 0; i < abuffer.numberOfChannels; i++) channels.push(abuffer.getChannelData(i));
         while(pos < length) {
             for(i = 0; i < numOfChan; i++) {
                 sample = Math.max(-1, Math.min(1, channels[i][offset]));
                 sample = (sample < 0 ? sample * 0x8000 : sample * 0x7FFF);
-                view.setInt16(pos, sample, true);
-                pos += 2;
+                view.setInt16(pos, sample, true); pos += 2;
             }
             offset++;
         }
@@ -219,9 +319,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
-    // 6. RECORDING & SUPABASE
+    // 7. SUPABASE RECORDING LOGIC
     // ==========================================
-
+    
     recordBtn.onclick = async () => {
         if (mediaRecorder && mediaRecorder.state === "recording") {
             mediaRecorder.stop();
