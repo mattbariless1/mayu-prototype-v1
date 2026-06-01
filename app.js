@@ -1,6 +1,6 @@
 /**
  * MAYU PROTOTYPE V1.1 - DYNAMIC TIMELINE ENGINE (0-Based Index)
- * Uses RNBO multibuffer~, 12s overlapping sequence, and mathematical fade outs.
+ * Uses RNBO multibuffer~, 40s interwoven sequence, and overlaid voice.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedFileUrl = null;
     let mediaRecorder;
     let audioChunks = [];
-    const audioPlayer = new Audio(); // Added Audio object for Auditioning
+    const audioPlayer = new Audio(); 
     
     // Dictionaries to hold durations of our loaded files (0, 1, 2)
     const durations = { inst: {}, amb: {}, voice: 0 };
@@ -42,11 +42,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         console.log("Loading multibuffer assets...");
         
-        // Corrected File Paths & Exact DataBuffer IDs mapped to JS indices (0, 1, 2)
+        // Load Music (Inst) files
         await loadAudio(`media/mayu-inst-1.wav`, `inst1`, rnboDevice, audioContext, 'inst', 0);
         await loadAudio(`media/mayu-inst-2.wav`, `inst2`, rnboDevice, audioContext, 'inst', 1);
         await loadAudio(`media/mayu-inst-3.wav`, `inst3`, rnboDevice, audioContext, 'inst', 2);
 
+        // Load Atmosphere (Amb) files
         await loadAudio(`media/mayu-amb-1.wav`, `amb1`, rnboDevice, audioContext, 'amb', 0);
         await loadAudio(`media/mayu-amb-2.wav`, `amb2`, rnboDevice, audioContext, 'amb', 1);
         await loadAudio(`media/mayu-amb-3.wav`, `amb3`, rnboDevice, audioContext, 'amb', 2);
@@ -97,41 +98,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
         buildTimeline(durationSeconds) {
             this.timeline = [];
-            let t = 0;
-
             this.instPool = [];
             this.ambPool = [];
 
-            while (t < durationSeconds) {
-                // 1. MUSIC (Inst)
-                let iIdx = this.getNext('inst');
-                let iLen = durations.inst[iIdx];
-                this.timeline.push({ time: t, param: 'inst_index', val: iIdx });
-                this.timeline.push({ time: t, param: 'play_inst', val: 1 });
-                // FIX: Send the stop message ONLY when the instrument file finishes
-                this.timeline.push({ time: t + iLen, param: 'play_inst', val: 0 });
+            // --- A. THE INTERWOVEN BED (Instrument <-> Atmosphere) ---
+            let currentTime = 0;
+            let isInstTurn = true;
 
-                // 2. ATMOSPHERE (Starts 12 seconds before Music ends)
-                let ambStart = t + iLen - 12;
-                if (ambStart < t) ambStart = t + iLen;
-
-                let aIdx = this.getNext('amb');
-                let aLen = durations.amb[aIdx];
-                this.timeline.push({ time: ambStart, param: 'amb_index', val: aIdx });
-                this.timeline.push({ time: ambStart, param: 'play_amb', val: 1 });
-                // FIX: Send the stop message ONLY when the atmosphere file finishes
-                this.timeline.push({ time: ambStart + aLen, param: 'play_amb', val: 0 });
-
-                // 3. VOICE (Starts immediately after Atmosphere ends)
-                let voiceStart = ambStart + aLen;
-                let vLen = durations.voice;
-                this.timeline.push({ time: voiceStart, param: 'play_voice', val: 1 });
-                // FIX: Send the stop message ONLY when the voice file finishes
-                this.timeline.push({ time: voiceStart + vLen, param: 'play_voice', val: 0 });
-
-                // Loop restarts after Voice ends
-                t = voiceStart + vLen;
+            while (currentTime < durationSeconds) {
+                if (isInstTurn) {
+                    let iIdx = this.getNext('inst');
+                    let iLen = durations.inst[iIdx];
+                    
+                    this.timeline.push({ time: currentTime, param: 'inst_index', val: iIdx });
+                    this.timeline.push({ time: currentTime, param: 'play_inst', val: 1 });
+                    this.timeline.push({ time: currentTime + iLen, param: 'play_inst', val: 0 });
+                    
+                    // Atmosphere starts 40 seconds before this instrument ends
+                    // Math.max guarantees the timeline doesn't move backwards if a file is < 40s
+                    currentTime = Math.max(currentTime + 1, currentTime + iLen - 40);
+                    isInstTurn = false;
+                } else {
+                    let aIdx = this.getNext('amb');
+                    let aLen = durations.amb[aIdx];
+                    
+                    this.timeline.push({ time: currentTime, param: 'amb_index', val: aIdx });
+                    this.timeline.push({ time: currentTime, param: 'play_amb', val: 1 });
+                    this.timeline.push({ time: currentTime + aLen, param: 'play_amb', val: 0 });
+                    
+                    // Instrument starts 40 seconds before this atmosphere ends
+                    currentTime = Math.max(currentTime + 1, currentTime + aLen - 40);
+                    isInstTurn = true;
+                }
             }
+
+            // --- B. THE VOICE OVERLAY ---
+            let vTime = 45; // First occurrence at exactly 45 seconds
+            let vLen = durations.voice;
+
+            while (vTime < durationSeconds) {
+                this.timeline.push({ time: vTime, param: 'play_voice', val: 1 });
+                this.timeline.push({ time: vTime + vLen, param: 'play_voice', val: 0 });
+
+                // Generate random interval between 180s (3m) and 300s (5m)
+                let randomInterval = Math.floor(Math.random() * (300 - 180 + 1)) + 180;
+                vTime = vTime + vLen + randomInterval;
+            }
+
+            // Sort all events chronologically so the playhead can process them
             this.timeline.sort((a, b) => a.time - b.time);
         }
     }
@@ -160,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Fix: Instantly create and resume the AudioContext upon click
+        // Instantly create and resume the AudioContext upon click
         if (!audioContext) {
             const WAContext = window.AudioContext || window.webkitAudioContext;
             audioContext = new WAContext();
@@ -176,7 +190,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target.checked) {
             await loadAudio(selectedFileUrl, 'voice_trk', rnboDevice, audioContext, 'voice', 0);
             
-            engine.buildTimeline(7200); 
+            // Generate a 30-minute sequence (1800 seconds)
+            engine.buildTimeline(1800); 
             isPlaying = true;
             eventIndex = 0;
             playStartTime = audioContext.currentTime;
@@ -240,7 +255,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             exportStatus.innerText = "Loading assets for rendering...";
             
-            // Corrected Offline Renderer Buffer IDs and File Paths
             await loadAudio(`media/mayu-inst-1.wav`, `inst1`, renderDevice, offlineContext, 'inst', 0);
             await loadAudio(`media/mayu-inst-2.wav`, `inst2`, renderDevice, offlineContext, 'inst', 1);
             await loadAudio(`media/mayu-inst-3.wav`, `inst3`, renderDevice, offlineContext, 'inst', 2);
