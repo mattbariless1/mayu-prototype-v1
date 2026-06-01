@@ -277,13 +277,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const uniqueTimes = Object.keys(timeMap).map(Number).sort((a,b) => a - b);
 
             for (let t of uniqueTimes) {
-                offlineContext.suspend(t).then(() => {
+                // FIX: Force any 0-second commands to apply instantly, bypassing the suspend queue
+                if (t <= 0) {
                     timeMap[t].forEach(ev => {
                         const p = renderDevice.parameters.find(param => param.id.includes(ev.param));
                         if (p) p.value = ev.val;
                     });
-                    offlineContext.resume();
-                });
+                } else {
+                    offlineContext.suspend(t).then(() => {
+                        timeMap[t].forEach(ev => {
+                            const p = renderDevice.parameters.find(param => param.id.includes(ev.param));
+                            if (p) p.value = ev.val;
+                        });
+                        offlineContext.resume();
+                    });
+                }
             }
 
             exportStatus.innerText = "Rendering 10-minute soundscape... (Takes ~10s)";
@@ -336,7 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setUint32(length - 8); 
         setUint32(0x45564157); // "WAVE"
         setUint32(0x20746d66); // "fmt "
-        setUint32(16);         // length of fmt chunk (FIXED: was setUint16)
+        setUint32(16);         // length of fmt chunk 
         setUint16(1);          // PCM format
         setUint16(numOfChan);
         setUint32(abuffer.sampleRate);
