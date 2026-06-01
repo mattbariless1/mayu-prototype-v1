@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedFileUrl = null;
     let mediaRecorder;
     let audioChunks = [];
-    const audioPlayer = new Audio(); // <-- ADD THIS LINE
+    const audioPlayer = new Audio(); // Added Audio object for Auditioning
     
     // Dictionaries to hold durations of our loaded files (0, 1, 2)
     const durations = { inst: {}, amb: {}, voice: 0 };
@@ -35,9 +35,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // ==========================================
 
     async function setupRNBO() {
-        const WAContext = window.AudioContext || window.webkitAudioContext;
-        audioContext = new WAContext();
-
         const response = await fetch('mayu-prototype-v1.1.export.json');
         const patcher = await response.json();
         rnboDevice = await RNBO.createDevice({ context: audioContext, patcher });
@@ -45,12 +42,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         console.log("Loading multibuffer assets...");
         
-        // Load Music (Inst) files into multibuffer~ mayu-inst (Indices 0, 1, 2)
+        // Corrected File Paths & Exact DataBuffer IDs mapped to JS indices (0, 1, 2)
         await loadAudio(`media/mayu-inst-1.wav`, `inst1`, rnboDevice, audioContext, 'inst', 0);
         await loadAudio(`media/mayu-inst-2.wav`, `inst2`, rnboDevice, audioContext, 'inst', 1);
         await loadAudio(`media/mayu-inst-3.wav`, `inst3`, rnboDevice, audioContext, 'inst', 2);
 
-        // Load Atmosphere (Amb) files into multibuffer~ mayu-amb (Indices 0, 1, 2)
         await loadAudio(`media/mayu-amb-1.wav`, `amb1`, rnboDevice, audioContext, 'amb', 0);
         await loadAudio(`media/mayu-amb-2.wav`, `amb2`, rnboDevice, audioContext, 'amb', 1);
         await loadAudio(`media/mayu-amb-3.wav`, `amb3`, rnboDevice, audioContext, 'amb', 2);
@@ -94,7 +90,6 @@ document.addEventListener('DOMContentLoaded', () => {
         getNext(type) {
             let pool = type === 'inst' ? this.instPool : this.ambPool;
             if (pool.length === 0) {
-                // Fill with 0, 1, 2 and shuffle
                 pool.push(...this.shuffle([0, 1, 2]));
             }
             return pool.shift();
@@ -108,16 +103,12 @@ document.addEventListener('DOMContentLoaded', () => {
             this.ambPool = [];
 
             while (t < durationSeconds) {
-                // 1. MUSIC (Inst)
                 let iIdx = this.getNext('inst');
                 let iLen = durations.inst[iIdx];
                 this.timeline.push({ time: t, param: 'inst_index', val: iIdx });
                 this.timeline.push({ time: t, param: 'play_inst', val: 1 });
-                // We don't send a 0 to stop music immediately; we let it play through, 
-                // but we reset the UI trigger param so it's ready for the next round
                 this.timeline.push({ time: t + 0.1, param: 'play_inst', val: 0 });
 
-                // 2. ATMOSPHERE (Starts 12 seconds before Music ends)
                 let ambStart = t + iLen - 12;
                 if (ambStart < t) ambStart = t + iLen;
 
@@ -127,13 +118,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.timeline.push({ time: ambStart, param: 'play_amb', val: 1 });
                 this.timeline.push({ time: ambStart + 0.1, param: 'play_amb', val: 0 });
 
-                // 3. VOICE (Starts immediately after Atmosphere ends)
                 let voiceStart = ambStart + aLen;
                 let vLen = durations.voice;
                 this.timeline.push({ time: voiceStart, param: 'play_voice', val: 1 });
                 this.timeline.push({ time: voiceStart + 0.1, param: 'play_voice', val: 0 });
 
-                // Loop restarts after Voice ends
                 t = voiceStart + vLen;
             }
             this.timeline.sort((a, b) => a.time - b.time);
@@ -164,8 +153,18 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Fix: Instantly create and resume the AudioContext upon click
+        if (!audioContext) {
+            const WAContext = window.AudioContext || window.webkitAudioContext;
+            audioContext = new WAContext();
+        }
+        if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+        }
+        
+        console.log("AudioContext state is now:", audioContext.state); 
+
         if (!rnboDevice) await setupRNBO();
-        if (audioContext.state === 'suspended') await audioContext.resume();
 
         if (e.target.checked) {
             await loadAudio(selectedFileUrl, 'voice_trk', rnboDevice, audioContext, 'voice', 0);
@@ -179,7 +178,6 @@ document.addEventListener('DOMContentLoaded', () => {
             isPlaying = false;
             cancelAnimationFrame(rAF_ID);
             
-            // Stop all playing tracks when toggled off
             const pInst = rnboDevice.parameters.find(p => p.id.includes("play_inst"));
             const pAmb = rnboDevice.parameters.find(p => p.id.includes("play_amb"));
             const pVoice = rnboDevice.parameters.find(p => p.id.includes("play_voice"));
@@ -196,7 +194,12 @@ document.addEventListener('DOMContentLoaded', () => {
         while (eventIndex < engine.timeline.length && engine.timeline[eventIndex].time <= now) {
             let ev = engine.timeline[eventIndex];
             const p = rnboDevice.parameters.find(param => param.id.includes(ev.param));
-            if (p) p.value = ev.val;
+            if (p) {
+                p.value = ev.val;
+                console.log(`[MAYU] Fired ${p.id} -> ${ev.val} (Time: ${now.toFixed(2)}s)`);
+            } else {
+                console.warn(`[MAYU] Warning: RNBO parameter '${ev.param}' not found!`);
+            }
             eventIndex++;
         }
         rAF_ID = requestAnimationFrame(processRealtime);
@@ -206,7 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
         audioPlayer.pause();
         audioPlayer.currentTime = 0;
         if (mixToggle.checked) {
-            mixToggle.click(); // Uses the logic above to cleanly stop the RNBO engine
+            mixToggle.click(); 
         }
     };
 
@@ -229,18 +232,15 @@ document.addEventListener('DOMContentLoaded', () => {
             renderDevice.node.connect(offlineContext.destination);
 
             exportStatus.innerText = "Loading assets for rendering...";
-        
-             // Music (Inst) files for offline render
+            
+            // Corrected Offline Renderer Buffer IDs and File Paths
             await loadAudio(`media/mayu-inst-1.wav`, `inst1`, renderDevice, offlineContext, 'inst', 0);
             await loadAudio(`media/mayu-inst-2.wav`, `inst2`, renderDevice, offlineContext, 'inst', 1);
             await loadAudio(`media/mayu-inst-3.wav`, `inst3`, renderDevice, offlineContext, 'inst', 2);
-
-            // Atmosphere (Amb) files for offline render
             await loadAudio(`media/mayu-amb-1.wav`, `amb1`, renderDevice, offlineContext, 'amb', 0);
             await loadAudio(`media/mayu-amb-2.wav`, `amb2`, renderDevice, offlineContext, 'amb', 1);
             await loadAudio(`media/mayu-amb-3.wav`, `amb3`, renderDevice, offlineContext, 'amb', 2);
-        
-            // Voice file for offline render
+            
             await loadAudio(selectedFileUrl, 'voice_trk', renderDevice, offlineContext, 'voice', 0);
 
             exportStatus.innerText = "Calculating sequence...";
@@ -312,7 +312,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function setUint32(data) { view.setUint32(pos, data, true); pos += 4; }
 
         setUint32(0x46464952); setUint32(length - 8); setUint32(0x45564157);
-        setUint32(0x20746d66); setUint32(16); setUint16(1); setUint16(numOfChan);
+        setUint32(0x20746d66); setUint16(16); setUint16(1); setUint16(numOfChan);
         setUint32(abuffer.sampleRate); setUint32(abuffer.sampleRate * 2 * numOfChan);
         setUint16(numOfChan * 2); setUint16(16); setUint32(0x61746164); setUint32(length - pos - 4);
         for(i = 0; i < abuffer.numberOfChannels; i++) channels.push(abuffer.getChannelData(i));
