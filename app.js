@@ -38,8 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const response = await fetch('mayu-prototype-v1.1.export.json');
         const patcher = await response.json();
         rnboDevice = await RNBO.createDevice({ context: audioContext, patcher });
-        rnboDevice.node.connect(audioContext.destination);
-
+        
         console.log("Loading multibuffer assets...");
         
         await loadAudio(`media/mayu-inst-1.wav`, `inst1`, rnboDevice, audioContext, 'inst', 0);
@@ -108,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
             while (currentTime < durationSeconds) {
                 if (isInstTurn) {
                     let iIdx = this.getNext('inst');
-                    let iLen = durations.inst[iIdx];
+                    let iLen = durations.inst[iIdx] || 60; // Fallback safety
                     
                     if (currentTime < instEndTime) currentTime = instEndTime;
                     
@@ -117,11 +116,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.timeline.push({ time: currentTime + iLen, param: 'play_inst', val: 0 });
                     
                     instEndTime = currentTime + iLen;
-                    currentTime = instEndTime - 40;
+                    
+                    // FIX: Clamp the overlap to guarantee it never creates negative time gaps
+                    let safeOverlap = Math.min(40, iLen - 1); 
+                    currentTime = instEndTime - safeOverlap;
                     isInstTurn = false;
                 } else {
                     let aIdx = this.getNext('amb');
-                    let aLen = durations.amb[aIdx];
+                    let aLen = durations.amb[aIdx] || 60;
                     
                     if (currentTime < ambEndTime) currentTime = ambEndTime;
                     
@@ -130,7 +132,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.timeline.push({ time: currentTime + aLen, param: 'play_amb', val: 0 });
                     
                     ambEndTime = currentTime + aLen;
-                    currentTime = ambEndTime - 40;
+                    
+                    // FIX: Clamp the overlap
+                    let safeOverlap = Math.min(40, aLen - 1);
+                    currentTime = ambEndTime - safeOverlap;
                     isInstTurn = true;
                 }
             }
@@ -160,13 +165,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const engine = new PlaybackEngine();
 
     // ==========================================
-    // 5. REAL-TIME PLAYBACK
+    // 5. REAL-TIME PLAYBACK (Lookahead Scheduler)
     // ==========================================
     
     let isPlaying = false;
-    let rAF_ID = null;
+    let timerID = null;
     let playStartTime = 0;
     let eventIndex = 0;
+    const LOOKAHEAD_SEC = 1.5; // Schedules events 1.5 seconds into the future
 
     playBtn.onclick = () => {
         if (!selectedFileUrl) return alert("Please select a recording to audition.");
@@ -194,21 +200,33 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target.checked) {
             await loadAudio(selectedFileUrl, 'voice_trk', rnboDevice, audioContext, 'voice', 0);
             
+            // Re-connect node to the output in case it was stopped previously
+            rnboDevice.node.connect(audioContext.destination);
+
             engine.buildTimeline(1800); 
             isPlaying = true;
             eventIndex = 0;
             playStartTime = audioContext.currentTime;
+            
+            // Start the Lookahead sequence
             processRealtime();
+            timerID = setInterval(processRealtime, 500); 
         } else {
             isPlaying = false;
-            cancelAnimationFrame(rAF_ID);
+            clearInterval(timerID);
+            
+            // Disconnect instantly to block any scheduled events left in the lookahead queue
+            rnboDevice.node.disconnect(); 
             
             const pInst = rnboDevice.parameters.find(p => p.id.includes("play_inst"));
             const pAmb = rnboDevice.parameters.find(p => p.id.includes("play_amb"));
             const pVoice = rnboDevice.parameters.find(p => p.id.includes("play_voice"));
-            if (pInst) pInst.value = 0;
-            if (pAmb) pAmb.value = 0;
-            if (pVoice) pVoice.value = 0;
+            
+            // Schedule reset signals slightly in the future so parameters are clean on the next activation
+            let stopTimeMs = (audioContext.currentTime + 0.1) * 1000;
+            if (pInst) rnboDevice.scheduleEvent(new RNBO.ParameterEvent(stopTimeMs, pInst.index, 0));
+            if (pAmb) rnboDevice.scheduleEvent(new RNBO.ParameterEvent(stopTimeMs, pAmb.index, 0));
+            if (pVoice) rnboDevice.scheduleEvent(new RNBO.ParameterEvent(stopTimeMs, pVoice.index, 0));
         }
     };
 
@@ -216,16 +234,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isPlaying) return;
         let now = audioContext.currentTime - playStartTime;
         
-        while (eventIndex < engine.timeline.length && engine.timeline[eventIndex].time <= now) {
+        // Push all events occurring within the next 1.5 seconds directly into the audio thread queue
+        while (eventIndex < engine.timeline.length && engine.timeline[eventIndex].time <= now + LOOKAHEAD_SEC) {
             let ev = engine.timeline[eventIndex];
             const p = rnboDevice.parameters.find(param => param.id.includes(ev.param));
             if (p) {
-                p.value = ev.val;
-                console.log(`[MAYU] Fired ${p.id} -> ${ev.val} (Time: ${now.toFixed(2)}s)`);
+                let scheduleTimeMs = (playStartTime + ev.time) * 1000;
+                rnboDevice.scheduleEvent(new RNBO.ParameterEvent(scheduleTimeMs, p.index, ev.val));
             }
             eventIndex++;
         }
-        rAF_ID = requestAnimationFrame(processRealtime);
     }
 
     stopBtn.onclick = () => {
@@ -279,15 +297,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             for (let t of uniqueTimes) {
                 offlineContext.suspend(t).then(() => {
-                    // 1. Send the parameters to the audio worklet
                     timeMap[t].forEach(ev => {
                         const p = renderDevice.parameters.find(param => param.id.includes(ev.param));
                         if (p) p.value = ev.val;
                     });
                     
-                    // 2. THE MESSAGE QUEUE FLUSH
-                    // Yield control for 15ms so the browser actually delivers the 
-                    // parameters to the audio engine before we start rendering again.
                     setTimeout(() => {
                         offlineContext.resume();
                     }, 15);
